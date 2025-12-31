@@ -293,6 +293,10 @@ Responde con el número de la opción que necesitas 📱"""
         conversation_manager.update_estado(numero_telefono, EstadoConversacion.RECOLECTANDO_SECUENCIAL)
 
         if tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
+            if not numero_telefono.startswith("messenger:"):
+                success = ChatbotRules.send_fecha_pago_hoy_button(numero_telefono)
+                if success:
+                    return ""
             return ChatbotRules._get_pregunta_campo_secuencial("fecha_pago")
 
         if tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
@@ -737,8 +741,8 @@ Responde con el número de la opción que necesitas 📱"""
 
         body_text = f"Detecté piso/depto: {sugerido}. ¿Querés usarlo?"
         buttons = [
-            {"id": "piso_depto_usar", "title": f"Usar {sugerido}"},
-            {"id": "piso_depto_otro", "title": "Escribir otro"},
+            {"id": "piso_depto_usar", "title": f"{sugerido}"},
+            {"id": "piso_depto_otro", "title": "Otro"},
         ]
 
         success = meta_whatsapp_service.send_interactive_buttons(
@@ -768,6 +772,34 @@ Responde con el número de la opción que necesitas 📱"""
             'detalle_servicio': f"📝 Detalle registrado: {valor}",
         }
         return confirmaciones.get(campo, f"✅ {valor} guardado correctamente.")
+
+    @staticmethod
+    def send_fecha_pago_hoy_button(numero_telefono: str) -> bool:
+        """
+        Envía la pregunta de fecha de pago con botón interactivo "Hoy".
+        """
+        from services.meta_whatsapp_service import meta_whatsapp_service
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        body_text = ChatbotRules._get_pregunta_campo_secuencial("fecha_pago")
+        buttons = [
+            {"id": "fecha_hoy", "title": "Hoy"},
+        ]
+
+        success = meta_whatsapp_service.send_interactive_buttons(
+            numero_telefono,
+            body_text=body_text,
+            buttons=buttons,
+        )
+
+        if success:
+            logger.info("✅ Botón 'Hoy' enviado a %s", numero_telefono)
+            return True
+
+        logger.error("❌ Error enviando botón 'Hoy' a %s", numero_telefono)
+        return False
     
     @staticmethod
     def _procesar_campo_secuencial(numero_telefono: str, mensaje: str) -> str:
@@ -1194,6 +1226,10 @@ Responde con el número del campo que deseas modificar."""
                 if success:
                     return ""
                 return mensaje_tipo
+            if not numero_telefono.startswith("messenger:"):
+                success = ChatbotRules.send_fecha_pago_hoy_button(numero_telefono)
+                if success:
+                    return ""
             return f"✏️ Entendido. {ChatbotRules.get_mensaje_recoleccion_datos(tipo_consulta)}"
 
         conversation_manager.set_datos_temporales(numero_telefono, '_campo_a_corregir', campo)
@@ -1205,6 +1241,11 @@ Responde con el número del campo que deseas modificar."""
             if success:
                 return ""
             return mensaje_tipo
+
+        if campo == 'fecha_pago' and not numero_telefono.startswith("messenger:"):
+            success = ChatbotRules.send_fecha_pago_hoy_button(numero_telefono)
+            if success:
+                return ""
 
         return f"✅ Perfecto. Por favor envía el nuevo valor para: {ChatbotRules._get_pregunta_campo_individual(campo)}"
         

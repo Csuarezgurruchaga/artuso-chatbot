@@ -74,13 +74,15 @@ class ExpensasSheetService:
         direccion_mapeada = self._resolve_address_code(direccion_ingresada)
         direccion_salida = direccion_mapeada if direccion_mapeada is not None else direccion_ingresada
 
+        piso_depto_norm = self._normalize_piso_depto(datos.get("piso_depto", ""))
+
         row = [
             "ws",  # TIPO AVISO
             fecha_aviso,  # FECHA AVISO
             datos.get("fecha_pago", ""),  # FECHA DE PAGO
             datos.get("monto", ""),  # MONTO
             direccion_salida,  # ED
-            datos.get("piso_depto", ""),  # DPTO
+            piso_depto_norm,  # DPTO
             "",  # UF
             comentario,  # COMENTARIO
         ]
@@ -111,6 +113,13 @@ class ExpensasSheetService:
         normalized = re.sub(r"\bav\.?\b", "avenida", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
+
+    @staticmethod
+    def _normalize_piso_depto(text: str) -> str:
+        if not text:
+            return ""
+        normalized = re.sub(r"\s+", " ", text.strip())
+        return normalized.upper()
 
     def _strip_localidad_tokens(self, text: str) -> str:
         if not text:

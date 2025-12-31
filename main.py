@@ -898,6 +898,39 @@ async def handle_interactive_button(numero_telefono: str, button_id: str, profil
             # Finalizar conversación
             conversation_manager.finalizar_conversacion(numero_telefono)
             return "¡Gracias por contactarnos! 👋 Esperamos poder ayudarte en el futuro."
+
+        elif button_id == "fecha_hoy":
+            from datetime import datetime, timedelta
+
+            fecha_hoy = (datetime.utcnow() - timedelta(hours=3)).strftime("%d/%m/%Y")
+
+            if (
+                conversacion.estado == EstadoConversacion.CORRIGIENDO_CAMPO
+                and conversacion.datos_temporales.get("_campo_a_corregir") == "fecha_pago"
+            ):
+                conversation_manager.set_datos_temporales(numero_telefono, "fecha_pago", fecha_hoy)
+                valido, error = conversation_manager.validar_y_guardar_datos(numero_telefono)
+                if not valido:
+                    return f"❌ Error al actualizar: {error}"
+                conversation_manager.set_datos_temporales(numero_telefono, "_campo_a_corregir", None)
+                conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+                conversacion_actualizada = conversation_manager.get_conversacion(numero_telefono)
+                return f"✅ Campo actualizado correctamente.\n\n{ChatbotRules.get_mensaje_confirmacion(conversacion_actualizada)}"
+
+            if (
+                conversacion.estado == EstadoConversacion.RECOLECTANDO_SECUENCIAL
+                and conversation_manager.get_campo_siguiente(numero_telefono) == "fecha_pago"
+            ):
+                conversation_manager.marcar_campo_completado(numero_telefono, "fecha_pago", fecha_hoy)
+                siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+                if not siguiente_campo:
+                    conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+                    return ChatbotRules.get_mensaje_confirmacion(
+                        conversation_manager.get_conversacion(numero_telefono)
+                    )
+                return ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo)
+
+            return "No hay una fecha por completar en este momento."
             
         elif button_id == "piso_depto_usar":
             sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")

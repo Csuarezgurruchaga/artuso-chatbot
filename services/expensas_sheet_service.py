@@ -143,7 +143,7 @@ class ExpensasSheetService:
             row_index = int(match.group(2))
             col_letter = self._column_letter(col_index)
             cell_range = f"{col_letter}{row_index}"
-            formula = f'=HYPERLINK("{url}","COMPROBANTE")'
+            formula = f'=HYPERLINK("{url}";"COMPROBANTE")'
             ws.update(
                 [[formula]],
                 range_name=cell_range,

@@ -360,14 +360,12 @@ Responde con el número de la opción que necesitas 📱"""
             for option in ChatbotRules.MENU_OPTIONS
         ]
 
-        header_text = f"¡Hola {nombre_usuario}!" if nombre_usuario else None
         footer_text = "Seleccioná una opción para continuar"
 
         success = meta_whatsapp_service.send_interactive_buttons(
             numero_telefono,
             body_text=mensaje_menu,
             buttons=buttons,
-            header_text=header_text,
             footer_text=footer_text
         )
 
@@ -692,6 +690,69 @@ Responde con el número de la opción que necesitas 📱"""
     def _get_pregunta_campo_secuencial(campo: str, tipo_consulta: TipoConsulta = None) -> str:
         """Preguntas específicas para el flujo secuencial"""
         return ChatbotRules._get_pregunta_campo_individual(campo)
+
+    @staticmethod
+    def _extraer_piso_depto_de_direccion(direccion: str) -> tuple[str, Optional[str]]:
+        """
+        Intenta extraer piso/depto al final de una dirección.
+        """
+        if not direccion:
+            return direccion, None
+
+        texto = direccion.strip()
+
+        # Caso con keyword explícita al final (piso/depto/dto)
+        keyword_pattern = re.compile(
+            r"(?:,|\s)(?:piso|p|depto|dpto|dto|departamento)\s*"
+            r"(\d{1,3}\s*[°º]?\s*[a-zA-Z]{0,2})\s*$",
+            re.IGNORECASE,
+        )
+        match = keyword_pattern.search(texto)
+        if match:
+            sugerido = " ".join(match.group(1).split())
+            base = texto[:match.start()].strip(" ,")
+            return base, sugerido
+
+        # Caso sin keyword: token final con número + letra (ej: 4B, 3° B)
+        suffix_pattern = re.compile(r"\b(\d{1,3}\s*[°º]?\s*[a-zA-Z]{1,2})\s*$")
+        match = suffix_pattern.search(texto)
+        if match:
+            sugerido = " ".join(match.group(1).split())
+            base = texto[:match.start()].strip(" ,")
+            # Evitar capturar solo el número de calle
+            if len(re.findall(r"\d+", base)) >= 1:
+                return base, sugerido
+
+        return direccion, None
+
+    @staticmethod
+    def send_piso_depto_suggestion(numero_telefono: str, sugerido: str) -> bool:
+        """
+        Envía sugerencia interactiva para piso/depto detectado en la dirección.
+        """
+        from services.meta_whatsapp_service import meta_whatsapp_service
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        body_text = f"Detecté piso/depto: {sugerido}. ¿Querés usarlo?"
+        buttons = [
+            {"id": "piso_depto_usar", "title": f"Usar {sugerido}"},
+            {"id": "piso_depto_otro", "title": "Escribir otro"},
+        ]
+
+        success = meta_whatsapp_service.send_interactive_buttons(
+            numero_telefono,
+            body_text=body_text,
+            buttons=buttons,
+        )
+
+        if success:
+            logger.info("✅ Sugerencia de piso/depto enviada a %s", numero_telefono)
+        else:
+            logger.error("❌ Error enviando sugerencia de piso/depto a %s", numero_telefono)
+
+        return success
     
     @staticmethod
     def _get_mensaje_confirmacion_campo(campo: str, valor: str) -> str:
@@ -726,6 +787,24 @@ Responde con el número de la opción que necesitas 📱"""
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, matched)
+        elif campo_actual == 'direccion' and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
+            sugerido = None
+            direccion_base = valor
+            direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+
+            if sugerido and len(direccion_base) >= 5:
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_piso_depto_sugerido",
+                    sugerido,
+                )
+                valor = direccion_base
+            else:
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_piso_depto_sugerido",
+                    None,
+                )
         elif campo_actual == 'comentario' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, "")
         else:
@@ -739,6 +818,21 @@ Responde con el número de la opción que necesitas 📱"""
             return ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
 
         siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+        if (
+            siguiente_campo == 'piso_depto'
+            and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
+            and not numero_telefono.startswith("messenger:")
+        ):
+            sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
+            if sugerido and ChatbotRules.send_piso_depto_suggestion(numero_telefono, sugerido):
+                return ""
+            if sugerido:
+                return (
+                    f"Detecté piso/depto: {sugerido}. "
+                    f"Respondé con {sugerido} o escribí otro.\n\n"
+                    f"{ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)}"
+                )
+
         return ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)
     
     @staticmethod

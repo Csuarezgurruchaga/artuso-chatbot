@@ -1029,7 +1029,18 @@ async def handle_interactive_button(numero_telefono: str, button_id: str, profil
             conversation_manager.marcar_campo_completado(numero_telefono, "piso_depto", sugerido)
             conversation_manager.set_datos_temporales(numero_telefono, "_piso_depto_sugerido", None)
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.RECOLECTANDO_SECUENCIAL)
-            return ChatbotRules._get_pregunta_campo_secuencial("comentario")
+            siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+            if not siguiente_campo:
+                conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+                conversacion_actualizada = conversation_manager.get_conversacion(numero_telefono)
+                if not numero_telefono.startswith("messenger:"):
+                    ChatbotRules.send_confirmacion_interactiva(
+                        numero_telefono,
+                        conversacion_actualizada,
+                    )
+                    return ""
+                return ChatbotRules.get_mensaje_confirmacion(conversacion_actualizada)
+            return ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo)
             
         elif button_id == "piso_depto_otro":
             conversation_manager.set_datos_temporales(numero_telefono, "_piso_depto_sugerido", None)

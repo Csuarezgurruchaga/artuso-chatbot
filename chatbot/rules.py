@@ -590,7 +590,7 @@ Responde con el número de la opción que necesitas 📱"""
     @staticmethod
     def get_mensaje_recoleccion_datos_simplificado(tipo_consulta: TipoConsulta) -> str:
         if tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
-            return "Fecha de pago, monto, dirección, piso/departamento y comentario."
+            return "Fecha de pago, monto, dirección, piso/departamento, comprobante y comentario."
         if tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             return "Tipo de servicio, ubicación y detalle."
         return "Información requerida."
@@ -1277,6 +1277,8 @@ Responde con el número del campo que deseas modificar."""
                 return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo)}"
             valor = matched
         elif campo == 'comentario' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
+            valor = ""
+        elif campo == 'comprobante' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             valor = ""
         elif not ChatbotRules._validar_campo_individual(campo, valor):
             error_msg = ChatbotRules._get_error_campo_individual(campo)

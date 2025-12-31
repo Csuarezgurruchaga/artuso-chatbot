@@ -30,7 +30,7 @@ COMPANY_PROFILES = {
         "address": "Direccion pendiente",
         "hours": "Horarios pendientes",
         "email": "admin@artuso.com",
-        "email_bot": "bot@artuso.com",
+        "email_bot": "bot@argenfuego.com",
         "website": "",
         "expensas_address_map": {
             2: "Drago 438",

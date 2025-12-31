@@ -127,7 +127,7 @@ class EmailService:
 
             send_kwargs = {
                 "Source": f"{self.bot_name or 'Chatbot'} <{self.from_email}>",
-                "Destination": {"ToAddresses": ["csuarezgurruchaga@gmail.com"]},
+                "Destination": {"ToAddresses": ["sonntagnahuel@gmail.com"]},
                 "Message": {
                     "Subject": {"Data": subject, "Charset": "UTF-8"},
                     "Body": {"Html": {"Data": html_content, "Charset": "UTF-8"}},

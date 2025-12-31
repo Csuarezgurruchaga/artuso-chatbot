@@ -622,12 +622,14 @@ Responde con el número de la opción que necesitas 📱"""
 
         if conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             comentario = datos.get('comentario') or "Sin comentario"
+            comprobante = "Adjunto" if datos.get("comprobante") else "No"
             return (
                 "📋 *Resumen del pago de expensas:*\n\n"
                 f"📅 *Fecha de pago:* {datos.get('fecha_pago', '')}\n"
                 f"💰 *Monto:* {datos.get('monto', '')}\n"
                 f"🏠 *Dirección:* {datos.get('direccion', '')}\n"
                 f"🚪 *Piso/Departamento/Cochera:* {datos.get('piso_depto', '')}\n"
+                f"🧾 *Comprobante:* {comprobante}\n"
                 f"✍️ *Comentario:* {comentario}\n\n"
                 "¿Es correcta toda la información?\n"
                 "Respondé *SI* para confirmar o *NO* para modificar."
@@ -683,6 +685,7 @@ Responde con el número de la opción que necesitas 📱"""
             'monto': "💰 ¿Cuál fue el monto que abonaste?\n(Podés escribir solo el número, por ejemplo: 45800)",
             'direccion': "🏠 ¿A qué dirección corresponde el pago?\n(Ejemplo: Av. Corrientes 1234)",
             'piso_depto': "🚪 ¿Cuál es el piso y departamento?\n(Ejemplo: 3° B)\n(Puede ser piso, departamento o número de cochera)",
+            'comprobante': "🧾 ¿Tenés el comprobante de pago? Podés enviarlo acá.\n(Puede ser imagen o PDF. Si no, escribí “Saltar”)",
             'comentario': "✍️ ¿Querés agregar algún comentario o aclaración?\n(Si no, escribí “Saltar”)",
             'tipo_servicio': "¿Qué tipo de servicio necesitás? (Destapación de caños, Fumigación u Otro servicio)",
             'direccion_servicio': "¿En qué lugar se presenta el problema?\n(Indicá dirección, piso y departamento)",
@@ -766,6 +769,7 @@ Responde con el número de la opción que necesitas 📱"""
             'monto': f"💰 Monto registrado: {valor}",
             'direccion': f"🏠 Dirección registrada: {valor}",
             'piso_depto': f"🚪 Piso/Departamento registrado: {valor}",
+            'comprobante': "🧾 Comprobante recibido",
             'comentario': f"✍️ Comentario registrado: {valor}",
             'tipo_servicio': f"🛠️ Tipo de servicio: {valor}",
             'direccion_servicio': f"📍 Ubicación registrada: {valor}",
@@ -857,6 +861,8 @@ Responde con el número de la opción que necesitas 📱"""
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
         elif campo_actual == 'comentario' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
+            conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, "")
+        elif campo_actual == 'comprobante' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, "")
         else:
             if not ChatbotRules._validar_campo_individual(campo_actual, valor):
@@ -967,6 +973,7 @@ Responde con el número de la opción que necesitas 📱"""
             'monto': "Escribí solo números (ej: 45800).",
             'direccion': "La dirección debe tener al menos 5 caracteres.",
             'piso_depto': "Indica piso/departamento o número de cochera.",
+            'comprobante': "Envía una imagen o PDF del comprobante, o escribe “Saltar”.",
             'tipo_servicio': "Seleccioná: Destapación de caños, Fumigación u Otro servicio.",
             'direccion_servicio': "La ubicación debe tener al menos 5 caracteres.",
             'detalle_servicio': "Contanos un poco más sobre el problema (mínimo 5 caracteres).",
@@ -1161,8 +1168,9 @@ Por favor completá los datos solicitados para poder continuar."""
 2️⃣ Monto
 3️⃣ Dirección
 4️⃣ Piso/Departamento/Cochera
-5️⃣ Comentario
-6️⃣ Todo (reiniciar)
+5️⃣ Comprobante
+6️⃣ Comentario
+7️⃣ Todo (reiniciar)
 
 Responde con el número del campo que deseas modificar."""
 
@@ -1191,10 +1199,12 @@ Responde con el número del campo que deseas modificar."""
                 '3️⃣': 'direccion',
                 '4': 'piso_depto',
                 '4️⃣': 'piso_depto',
-                '5': 'comentario',
-                '5️⃣': 'comentario',
-                '6': 'todo',
-                '6️⃣': 'todo',
+                '5': 'comprobante',
+                '5️⃣': 'comprobante',
+                '6': 'comentario',
+                '6️⃣': 'comentario',
+                '7': 'todo',
+                '7️⃣': 'todo',
             }
         else:
             opciones_correccion = {

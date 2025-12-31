@@ -262,6 +262,51 @@ class MetaWhatsAppService:
         except Exception as e:
             logger.error(f"❌ Error enviando sticker a {to_number}: {str(e)}")
             return False
+
+    def download_media(self, media_id: str) -> Optional[Tuple[bytes, str]]:
+        """
+        Descarga un media de WhatsApp a partir del media_id.
+
+        Returns:
+            Tuple[content, mime_type] o None si falla.
+        """
+        try:
+            if not media_id:
+                return None
+
+            info_url = f"{self.base_url}/{media_id}"
+            info_resp = self._session.get(info_url, headers=self.headers, timeout=10)
+            if info_resp.status_code not in [200, 201]:
+                logger.error(
+                    "❌ Error obteniendo media info %s: %s - %s",
+                    media_id,
+                    info_resp.status_code,
+                    info_resp.text,
+                )
+                return None
+
+            info = info_resp.json()
+            media_url = info.get("url")
+            mime_type = info.get("mime_type", "")
+            if not media_url:
+                logger.error("❌ Media URL vacía para %s", media_id)
+                return None
+
+            download_headers = {"Authorization": f"Bearer {self.access_token}"}
+            media_resp = self._session.get(media_url, headers=download_headers, timeout=20)
+            if media_resp.status_code not in [200, 201]:
+                logger.error(
+                    "❌ Error descargando media %s: %s - %s",
+                    media_id,
+                    media_resp.status_code,
+                    media_resp.text,
+                )
+                return None
+
+            return media_resp.content, mime_type
+        except Exception as e:
+            logger.error("❌ Error descargando media %s: %s", media_id, str(e))
+            return None
     
     def send_interactive_buttons(self, to_number: str, body_text: str, 
                                 buttons: list, header_text: Optional[str] = None,
@@ -517,7 +562,7 @@ class MetaWhatsAppService:
                 profile = contacts[0].get('profile', {})
                 profile_name = profile.get('name', '')
             
-            # Extraer texto según el tipo
+            # Extraer texto/media según el tipo
             text_body = ''
             
             if message_type == 'text':
@@ -540,8 +585,9 @@ class MetaWhatsAppService:
             
             elif message_type == 'image':
                 # Imagen (registrar pero no procesar por ahora)
-                logger.info("Mensaje de tipo imagen recibido de %s", from_number)
-                text_body = ''  # Vacío para que sea manejado como media
+                image = message.get('image', {})
+                media_id = image.get('id', '')
+                text_body = f"media:{media_id}" if media_id else ''
             
             elif message_type == 'audio':
                 logger.info("Mensaje de tipo audio recibido de %s", from_number)
@@ -553,7 +599,9 @@ class MetaWhatsAppService:
             
             elif message_type == 'document':
                 logger.info("Mensaje de tipo documento recibido de %s", from_number)
-                text_body = ''
+                document = message.get('document', {})
+                media_id = document.get('id', '')
+                text_body = f"media:{media_id}" if media_id else ''
             
             # Asegurar formato E.164 (agregar + si no lo tiene)
             if from_number and not from_number.startswith('+'):

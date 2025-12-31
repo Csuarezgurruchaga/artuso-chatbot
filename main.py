@@ -17,6 +17,7 @@ from services.meta_messenger_service import meta_messenger_service
 from services.whatsapp_handoff_service import whatsapp_handoff_service
 from services.email_service import email_service
 from services.expensas_sheet_service import expensas_sheet_service
+from services.gcs_storage_service import gcs_storage_service
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
 
@@ -36,6 +37,14 @@ HANDOFF_INACTIVITY_MINUTES = int(
 )
 HANDOFF_TEMPLATE_NAME = os.getenv("HANDOFF_TEMPLATE_NAME", "handoff")
 HANDOFF_TEMPLATE_LANG = os.getenv("HANDOFF_TEMPLATE_LANG", "es_AR")
+COMPROBANTE_MIME_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/heic": ".heic",
+    "image/heif": ".heif",
+    "application/pdf": ".pdf",
+}
 
 
 def get_messaging_service(user_id: str):
@@ -402,6 +411,85 @@ async def webhook_whatsapp_receive(request: Request):
                 _maybe_notify_handoff(numero_telefono)
                 _postprocess_enviando(numero_telefono)
 
+                return PlainTextResponse("", status_code=200)
+
+            # Manejar comprobantes adjuntos
+            if message_type in {"image", "document"} and mensaje_usuario.startswith("media:"):
+                media_id = mensaje_usuario.split("media:", 1)[1]
+                conversacion_media = conversation_manager.get_conversacion(numero_telefono)
+                campo_siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
+                esperando_comprobante = (
+                    conversacion_media.estado == EstadoConversacion.RECOLECTANDO_SECUENCIAL
+                    and campo_siguiente == "comprobante"
+                )
+                corrigiendo_comprobante = (
+                    conversacion_media.estado == EstadoConversacion.CORRIGIENDO_CAMPO
+                    and conversacion_media.datos_temporales.get("_campo_a_corregir") == "comprobante"
+                )
+
+                if esperando_comprobante or corrigiendo_comprobante:
+                    media_data = meta_whatsapp_service.download_media(media_id)
+                    if not media_data:
+                        send_message(
+                            numero_telefono,
+                            "❌ No pude descargar el comprobante. Probá enviar nuevamente.",
+                        )
+                        return PlainTextResponse("", status_code=200)
+
+                    content, mime_type = media_data
+                    ext = COMPROBANTE_MIME_EXT.get(mime_type, "")
+                    if not ext:
+                        send_message(
+                            numero_telefono,
+                            "❌ Formato no soportado. Enviá PNG, JPG, PDF o HEIC.",
+                        )
+                        return PlainTextResponse("", status_code=200)
+
+                    url = gcs_storage_service.upload_public(content, mime_type, ext)
+                    if not url:
+                        send_message(
+                            numero_telefono,
+                            "❌ No pude guardar el comprobante. Intentá más tarde.",
+                        )
+                        return PlainTextResponse("", status_code=200)
+
+                    if corrigiendo_comprobante:
+                        conversation_manager.set_datos_temporales(numero_telefono, "comprobante", url)
+                        valido, error = conversation_manager.validar_y_guardar_datos(numero_telefono)
+                        if not valido:
+                            send_message(numero_telefono, f"❌ Error al actualizar: {error}")
+                            return PlainTextResponse("", status_code=200)
+                        conversation_manager.set_datos_temporales(numero_telefono, "_campo_a_corregir", None)
+                        conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+                        conversacion_actualizada = conversation_manager.get_conversacion(numero_telefono)
+                        send_message(
+                            numero_telefono,
+                            f"✅ Campo actualizado correctamente.\n\n{ChatbotRules.get_mensaje_confirmacion(conversacion_actualizada)}",
+                        )
+                        return PlainTextResponse("", status_code=200)
+
+                    conversation_manager.marcar_campo_completado(numero_telefono, "comprobante", url)
+                    siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
+                    if not siguiente:
+                        conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+                        send_message(
+                            numero_telefono,
+                            ChatbotRules.get_mensaje_confirmacion(
+                                conversation_manager.get_conversacion(numero_telefono)
+                            ),
+                        )
+                        return PlainTextResponse("", status_code=200)
+
+                    send_message(
+                        numero_telefono,
+                        ChatbotRules._get_pregunta_campo_secuencial(siguiente),
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                send_message(
+                    numero_telefono,
+                    "Recibí el archivo, pero ahora no necesito un comprobante.",
+                )
                 return PlainTextResponse("", status_code=200)
 
             # Fallback para contenidos no-texto

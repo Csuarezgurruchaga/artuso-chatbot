@@ -76,6 +76,7 @@ class ExpensasSheetService:
 
         piso_depto_norm = self._normalize_piso_depto(datos.get("piso_depto", ""))
 
+        comprobante_url = datos.get("comprobante", "")
         row = [
             "ws",  # TIPO AVISO
             fecha_aviso,  # FECHA AVISO
@@ -85,13 +86,16 @@ class ExpensasSheetService:
             piso_depto_norm,  # DPTO
             "",  # UF
             comentario,  # COMENTARIO
+            "",  # COMPROBANTE
         ]
 
         try:
             gc = self._get_client()
             sh = gc.open_by_key(EXPENSAS_SPREADSHEET_ID)
             ws = sh.worksheet(EXPENSAS_SHEET_NAME)
-            ws.append_row(row, value_input_option="RAW")
+            resp = ws.append_row(row, value_input_option="RAW")
+            if comprobante_url:
+                self._update_comprobante_link(ws, resp, len(row), comprobante_url)
             logger.info("Expensas append OK para %s", conversacion.numero_telefono)
             return True
         except Exception as e:
@@ -120,6 +124,33 @@ class ExpensasSheetService:
             return ""
         normalized = re.sub(r"\s+", " ", text.strip())
         return normalized.upper()
+
+    @staticmethod
+    def _column_letter(col_index: int) -> str:
+        letters = ""
+        while col_index > 0:
+            col_index, remainder = divmod(col_index - 1, 26)
+            letters = chr(65 + remainder) + letters
+        return letters
+
+    def _update_comprobante_link(self, ws, resp, col_index: int, url: str) -> None:
+        try:
+            updated_range = resp.get("updates", {}).get("updatedRange", "")
+            match = re.search(r"!([A-Z]+)(\d+)", updated_range)
+            if not match:
+                logger.error("No se pudo determinar la fila para comprobante: %s", updated_range)
+                return
+            row_index = int(match.group(2))
+            col_letter = self._column_letter(col_index)
+            cell_range = f"{col_letter}{row_index}"
+            formula = f'=HYPERLINK("{url}","COMPROBANTE")'
+            ws.update(
+                [[formula]],
+                range_name=cell_range,
+                value_input_option="USER_ENTERED",
+            )
+        except Exception as e:
+            logger.error("Error actualizando link de comprobante: %s", str(e))
 
     def _strip_localidad_tokens(self, text: str) -> str:
         if not text:

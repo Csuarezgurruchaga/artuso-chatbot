@@ -108,7 +108,7 @@ class ConversationManager:
         datos_temp = conversacion.datos_temporales
 
         if conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
-            campos_orden = ['fecha_pago', 'monto', 'direccion', 'piso_depto', 'comentario']
+            campos_orden = ['fecha_pago', 'monto', 'direccion', 'piso_depto', 'comprobante', 'comentario']
         elif conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             campos_orden = ['tipo_servicio', 'direccion_servicio', 'detalle_servicio']
         else:
@@ -142,7 +142,7 @@ class ConversationManager:
         datos_temp = conversacion.datos_temporales
 
         if conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
-            campos_orden = ['fecha_pago', 'monto', 'direccion', 'piso_depto', 'comentario']
+            campos_orden = ['fecha_pago', 'monto', 'direccion', 'piso_depto', 'comprobante', 'comentario']
         elif conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             campos_orden = ['tipo_servicio', 'direccion_servicio', 'detalle_servicio']
         else:

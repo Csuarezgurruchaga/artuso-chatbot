@@ -37,6 +37,12 @@ class ExpensasSheetService:
         datos = conversacion.datos_temporales or {}
         fecha_aviso = datetime.now().strftime("%d/%m/%Y")
         comentario = datos.get("comentario") or ""
+        sa_raw = os.getenv("GOOGLE_EXPENSAS_SERVICE_ACCOUNT_JSON", "").strip()
+        logger.info(
+            "Expensas creds status: present=%s length=%s",
+            bool(sa_raw),
+            len(sa_raw) if sa_raw else 0,
+        )
 
         logger.info(
             "Expensas append intento: phone=%s sheet=%s id=%s",
@@ -64,7 +70,11 @@ class ExpensasSheetService:
             logger.info("Expensas append OK para %s", conversacion.numero_telefono)
             return True
         except Exception as e:
-            logger.error(f"Error guardando expensas en Sheets: {str(e)}")
+            logger.exception(
+                "Error guardando expensas en Sheets: %s (%s)",
+                repr(e),
+                type(e).__name__,
+            )
             return False
 
     def _load_credentials(self):

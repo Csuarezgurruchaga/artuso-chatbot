@@ -85,7 +85,7 @@ class EmailService:
     def enviar_servicio_email(self, conversacion: ConversacionData) -> bool:
         try:
             datos = conversacion.datos_temporales
-            subject = "Nuevo pedido de servicio – Artuso"
+            subject = "Nueva solicitud de servicio - Generado por Artu"
             fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
 
             html_content = f"""
@@ -97,8 +97,7 @@ class EmailService:
             </head>
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
                 <div style="background-color: #1f2937; color: white; padding: 16px; text-align: center; border-radius: 8px 8px 0 0;">
-                    <h1 style="margin: 0; font-size: 20px;">Artuso</h1>
-                    <p style="margin: 6px 0 0 0; font-size: 13px;">Nuevo pedido de servicio</p>
+                    <h1 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">SOLICITUD DE SERVICIO</h1>
                 </div>
                 <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-top: none; padding: 20px; border-radius: 0 0 8px 8px;">
                     <p style="margin: 0 0 12px 0;"><strong>Fecha:</strong> {fecha_actual}</p>

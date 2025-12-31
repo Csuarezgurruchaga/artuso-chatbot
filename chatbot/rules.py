@@ -788,7 +788,6 @@ Responde con el número de la opción que necesitas 📱"""
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, matched)
         elif campo_actual == 'direccion' and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
-            sugerido = None
             direccion_base = valor
             direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
 
@@ -805,6 +804,10 @@ Responde con el número de la opción que necesitas 📱"""
                     "_piso_depto_sugerido",
                     None,
                 )
+            if not ChatbotRules._validar_campo_individual(campo_actual, valor):
+                error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
+                return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
+            conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
         elif campo_actual == 'comentario' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, "")
         else:

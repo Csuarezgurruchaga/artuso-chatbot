@@ -307,8 +307,9 @@ class MetaWhatsAppService:
                 "action": action
             }
             
-            if header_text:
-                interactive["header"] = {"type": "text", "text": header_text}
+            header_text_clean = header_text.strip() if header_text else ""
+            if header_text_clean:
+                interactive["header"] = {"type": "text", "text": header_text_clean}
             
             if footer_text:
                 interactive["footer"] = {"text": footer_text}

@@ -772,8 +772,18 @@ Responde con el número de la opción que necesitas 📱"""
     @staticmethod
     def _procesar_campo_secuencial(numero_telefono: str, mensaje: str) -> str:
         """Procesa un campo en el flujo secuencial conversacional"""
+        import logging
+
+        logger = logging.getLogger(__name__)
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         campo_actual = conversation_manager.get_campo_siguiente(numero_telefono)
+        logger.info(
+            "Secuencial: phone=%s estado=%s campo=%s tipo=%s",
+            numero_telefono,
+            conversacion.estado,
+            campo_actual,
+            conversacion.tipo_consulta,
+        )
 
         if not campo_actual:
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
@@ -790,6 +800,12 @@ Responde con el número de la opción que necesitas 📱"""
         elif campo_actual == 'direccion' and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             direccion_base = valor
             direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+            logger.info(
+                "Direccion parse: phone=%s base=%s sugerido=%s",
+                numero_telefono,
+                direccion_base[:80],
+                sugerido,
+            )
 
             if sugerido and len(direccion_base) >= 5:
                 conversation_manager.set_datos_temporales(
@@ -821,6 +837,17 @@ Responde con el número de la opción que necesitas 📱"""
             return ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
 
         siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+        if (
+            campo_actual == "direccion"
+            and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
+            and siguiente_campo == "direccion"
+        ):
+            logger.warning(
+                "Loop detectado en direccion: phone=%s. Forzando avance a piso_depto.",
+                numero_telefono,
+            )
+            conversation_manager.set_datos_temporales(numero_telefono, "direccion", valor)
+            siguiente_campo = "piso_depto"
         if (
             siguiente_campo == 'piso_depto'
             and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS

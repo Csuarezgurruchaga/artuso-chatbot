@@ -428,6 +428,17 @@ async def webhook_whatsapp_receive(request: Request):
             
             # Obtener conversación actual
             conversacion_actual = conversation_manager.get_conversacion(numero_telefono)
+            try:
+                siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+                logger.info(
+                    "Estado conversacion: phone=%s estado=%s tipo=%s siguiente=%s",
+                    numero_telefono,
+                    conversacion_actual.estado,
+                    conversacion_actual.tipo_consulta,
+                    siguiente_campo,
+                )
+            except Exception:
+                pass
             
             # Verificar si está esperando respuesta de encuesta (PRIORIDAD MUY ALTA)
             if conversacion_actual.estado == EstadoConversacion.ESPERANDO_RESPUESTA_ENCUESTA:

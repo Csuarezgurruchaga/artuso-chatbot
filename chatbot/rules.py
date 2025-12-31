@@ -272,6 +272,7 @@ Responde con el número de la opción que necesitas 📱"""
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         conversacion.atendido_por_humano = True
         conversacion.handoff_started_at = datetime.utcnow()
+        conversacion.last_client_message_at = datetime.utcnow()
         conversacion.mensaje_handoff_contexto = mensaje_contexto
         conversation_manager.add_to_handoff_queue(numero_telefono)
 
@@ -434,31 +435,32 @@ Responde con el número de la opción que necesitas 📱"""
     @staticmethod
     def send_confirmation_buttons(numero_telefono: str, mensaje: str):
         """
-        Envía botones de confirmación (Sí/No)
+        Envía botones de confirmación (Sí/No) interactivos
         """
         from services.meta_whatsapp_service import meta_whatsapp_service
         import logging
         logger = logging.getLogger(__name__)
-        
-        mensaje_completo = f"""{mensaje}
 
-┌─────────────────────────────┐
-│  ✅ 1. Sí, confirmar         │
-│  ❌ 2. No, corregir          │
-│  ⬅️ 3. Volver al menú        │
-└─────────────────────────────┘
+        buttons = [
+            {"id": "si", "title": "✅ Sí"},
+            {"id": "no", "title": "❌ No"},
+        ]
 
-💡 *Responde con el número de la opción que necesitas*"""
-        
-        # Enviar mensaje
-        success = meta_whatsapp_service.send_text_message(numero_telefono, mensaje_completo)
-        
+        success = meta_whatsapp_service.send_interactive_buttons(
+            numero_telefono,
+            body_text=mensaje,
+            buttons=buttons,
+            footer_text="Seleccioná una opción para continuar",
+        )
+
         if success:
-            logger.info(f"✅ Botones de confirmación enviados a {numero_telefono}")
-        else:
-            logger.error(f"❌ Error enviando botones de confirmación a {numero_telefono}")
-        
-        return success
+            logger.info("✅ Botones de confirmación enviados a %s", numero_telefono)
+            return True
+
+        logger.error("❌ Error enviando botones de confirmación a %s", numero_telefono)
+        fallback = f"{mensaje}\n\nResponde SI para confirmar o NO para corregir."
+        meta_whatsapp_service.send_text_message(numero_telefono, fallback)
+        return False
     
     @staticmethod
     def get_saludo_inicial(nombre_usuario: str = "") -> str:

@@ -23,6 +23,13 @@ class ExpensasSheetService:
         fecha_aviso = datetime.now().strftime("%d/%m/%Y")
         comentario = datos.get("comentario") or ""
 
+        logger.info(
+            "Expensas append intento: phone=%s sheet=%s id=%s",
+            conversacion.numero_telefono,
+            EXPENSAS_SHEET_NAME,
+            EXPENSAS_SPREADSHEET_ID,
+        )
+
         row = [
             "ws",  # TIPO AVISO
             fecha_aviso,  # FECHA AVISO
@@ -39,6 +46,7 @@ class ExpensasSheetService:
             sh = gc.open_by_key(EXPENSAS_SPREADSHEET_ID)
             ws = sh.worksheet(EXPENSAS_SHEET_NAME)
             ws.append_row(row, value_input_option="RAW")
+            logger.info("Expensas append OK para %s", conversacion.numero_telefono)
             return True
         except Exception as e:
             logger.error(f"Error guardando expensas en Sheets: {str(e)}")

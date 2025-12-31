@@ -3,7 +3,7 @@ import json
 import hmac
 import hashlib
 import logging
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 import requests
 from requests.adapters import HTTPAdapter
 
@@ -106,6 +106,74 @@ class MetaWhatsAppService:
             logger.error(f"Tipo de error: {type(e).__name__}")
             return False
     
+    def send_template_message(
+        self,
+        to_number: str,
+        template_name: str,
+        language_code: str,
+        body_params: Optional[List[str]] = None,
+    ) -> bool:
+        """
+        Envía un mensaje usando una plantilla aprobada de WhatsApp.
+
+        Args:
+            to_number: Número de destino en formato E.164 (ej: +5491135722871)
+            template_name: Nombre de la plantilla (ej: "handoff")
+            language_code: Código de idioma (ej: "es_AR")
+            body_params: Lista de variables para el body (en orden)
+
+        Returns:
+            bool: True si se envió exitosamente
+        """
+        try:
+            normalized_number = self._normalize_phone_number(to_number)
+
+            url = f"{self.base_url}/{self.phone_number_id}/messages"
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": normalized_number,
+                "type": "template",
+                "template": {
+                    "name": template_name,
+                    "language": {"code": language_code},
+                },
+            }
+
+            if body_params:
+                payload["template"]["components"] = [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": param} for param in body_params
+                        ],
+                    }
+                ]
+
+            response = self._session.post(url, headers=self.headers, json=payload, timeout=10)
+
+            if response.status_code in [200, 201]:
+                response_data = response.json()
+                message_id = response_data.get('messages', [{}])[0].get('id', 'N/A')
+                logger.info(
+                    "✅ Template enviado exitosamente a %s. Message ID: %s",
+                    normalized_number,
+                    message_id,
+                )
+                return True
+
+            logger.error(
+                "❌ Error enviando template a %s: %s - %s",
+                normalized_number,
+                response.status_code,
+                response.text,
+            )
+            return False
+
+        except Exception as e:
+            logger.error("❌ Error enviando template a %s: %s", to_number, str(e))
+            return False
+
     def send_media_message(self, to_number: str, media_url: str, caption: str = "") -> bool:
         """
         Envía un mensaje con imagen/media a través de WhatsApp Cloud API.

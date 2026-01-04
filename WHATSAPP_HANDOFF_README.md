@@ -41,15 +41,14 @@ META_WA_VERIFY_TOKEN=<verify_token>
 ### 4. Resolution (Mejorado)
 - Para finalizar la conversación, el agente envía: `ok`, `listo`, `/r`, etc.
 - Si `SUMMARY=true` está habilitado, se envía encuesta de satisfacción
-- Si `SUMMARY=false` o no está configurado, se envía pregunta: "¿Hay algo más en lo que pueda ayudarte?"
-- Si el cliente no responde en 10 minutos, se cierra automáticamente
-- Si el cliente responde, continúa la conversación o completa la encuesta
+- Si `SUMMARY=false` o no está configurado, la conversación se cierra inmediatamente
+- El agente continúa con la siguiente persona en cola (si la hay)
 
 ## Agent Commands
 
 | Command | Description |
 |---------|-------------|
-| `/resuelto`, `/r` | Envía pregunta de resolución al cliente |
+| `/resuelto`, `/r` | Cierra la conversación activa y ofrece encuesta si `SUMMARY=true` |
 | `ok`, `listo`, `done` | Comandos naturales para resolución |
 | `/resolved`, `/cerrar`, `/close`, `/fin`, `/end` | Alias para resolución |
 
@@ -71,7 +70,7 @@ SHEETS_SURVEY_SHEET_NAME=ENCUESTA_RESULTADOS
 ### Funcionamiento
 1. **Activación**: Se activa cuando el agente escribe `/r` o `/resuelto`
 2. **Preguntas**: 3 preguntas secuenciales con opciones numeradas
-3. **Respuestas**: El cliente puede responder con números (1, 2, 3) o texto
+3. **Respuestas**: El cliente puede responder con números según cada pregunta o texto
 4. **Almacenamiento**: Resultados se guardan en Google Sheets
 5. **Finalización**: Conversación se cierra automáticamente
 
@@ -81,10 +80,12 @@ SHEETS_SURVEY_SHEET_NAME=ENCUESTA_RESULTADOS
    - 2️⃣ Parcialmente  
    - 3️⃣ No
 
-2. **¿Cómo calificarías la amabilidad en la atención?**
-   - 1️⃣ Muy buena
-   - 2️⃣ Regular
-   - 3️⃣ Mala
+2. **¿Qué tan satisfecho quedaste con la atención?**
+   - 1️⃣ Muy insatisfecho
+   - 2️⃣ Insatisfecho
+   - 3️⃣ Neutral
+   - 4️⃣ Satisfecho
+   - 5️⃣ Muy satisfecho
 
 3. **¿Volverías a utilizar esta vía de contacto?**
    - 1️⃣ Sí
@@ -104,21 +105,24 @@ Agent → Bot: "Hola Juan, ¿en qué puedo ayudarte?"
 Bot → Client: "👨‍💼 Agente: Hola Juan, ¿en qué puedo ayudarte?"
 Bot → Agent: "✅ Mensaje enviado al cliente +5491123456789"
 
-Agent → Bot: "ok"
+Agent → Bot: "/r"
 # Si SUMMARY=true:
-Bot → Client: "Con el fin de seguir mejorando la calidad de nuestra atención, le proponemos responder la siguiente encuesta:\n\n¿Pudiste resolver el motivo por el cuál te comunicaste?\n1️⃣ Sí\n2️⃣ Parcialmente\n3️⃣ No\n\nResponde con el número (1, 2 o 3)"
-Bot → Agent: "✅ Encuesta de satisfacción enviada al cliente +5491123456789"
+Bot → Client: "¡Gracias por tu consulta, Juan! 🙏\n\n¿Nos ayudas con 3 preguntas rápidas? (toma menos de 1 minuto)\nTu opinión es muy valiosa para mejorar nuestro servicio.\n\n1️⃣ Sí, con gusto\n2️⃣ No, gracias\n\nSi no respondes en 2 minutos, cerraremos la conversación automáticamente."
+Bot → Agent: "✅ Cierre enviado a Juan (+5491123456789). ⏳ Encuesta en curso (auto-cierre 15 min). Usa /queue o /next."
 
 # Si SUMMARY=false:
-Bot → Client: "¿Hay algo más en lo que pueda ayudarte?\n\nSi no necesitas más ayuda, simplemente no respondas y la conversación se cerrará automáticamente en unos minutos."
-Bot → Agent: "✅ Pregunta de resolución enviada al cliente +5491123456789. Se cerrará automáticamente si no responde en 10 minutos."
+Bot → Client: "¡Gracias por tu consulta! Damos por finalizada esta conversación. ✅"
+Bot → Agent: "✅ Cierre enviado a Juan (+5491123456789). Usa /queue o /next."
 
 # Flujo de encuesta (si SUMMARY=true):
 Client → Bot: "1"
-Bot → Client: "¿Cómo calificarías la amabilidad en la atención?\n1️⃣ Muy buena\n2️⃣ Regular\n3️⃣ Mala\n\nResponde con el número (1, 2 o 3)"
+Bot → Client: "¡Perfecto! Comencemos:\n\n¿Pudiste resolver el motivo por el cuál te comunicaste?\n\n1️⃣ Sí\n2️⃣ Parcialmente\n3️⃣ No"
+
+Client → Bot: "4"
+Bot → Client: "¿Qué tan satisfecho quedaste con la atención?\n\n1️⃣ Muy insatisfecho\n2️⃣ Insatisfecho\n3️⃣ Neutral\n4️⃣ Satisfecho\n5️⃣ Muy satisfecho"
 
 Client → Bot: "1"
-Bot → Client: "¿Volverías a utilizar esta vía de contacto?\n1️⃣ Sí\n2️⃣ No\n\nResponde con el número (1, 2 o 3)"
+Bot → Client: "¿Volverías a utilizar esta vía de contacto?\n\n1️⃣ Sí\n2️⃣ No"
 
 Client → Bot: "1"
 Bot → Client: "¡Gracias por tu tiempo! Tus respuestas nos ayudan a mejorar nuestro servicio. ✅"
@@ -140,7 +144,7 @@ Bot → Client: "¡Gracias por tu tiempo! Tus respuestas nos ayudan a mejorar nu
 - **Bidirectional Communication**: Agent can respond to clients directly
 - **Smart Resolution**: Natural commands (ok, listo, /r) with client confirmation
 - **Satisfaction Surveys**: Optional post-handoff surveys with 3 questions
-- **Auto Timeout**: Conversations close automatically after 10 minutes of no response
+- **Auto Timeout**: Oferta de encuesta (2 min) y encuesta en curso (15 min)
 - **Error Handling**: Comprehensive error handling and logging
 - **Confirmation Messages**: Agent receives confirmation of sent messages
 - **Improved UX**: Short commands and natural language support

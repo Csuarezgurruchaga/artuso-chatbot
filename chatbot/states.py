@@ -315,13 +315,28 @@ class ConversationManager:
         Returns:
             str: Mensaje formateado
         """
-        if not self.handoff_queue:
+        survey_states = {
+            EstadoConversacion.ESPERANDO_RESPUESTA_ENCUESTA,
+            EstadoConversacion.ENCUESTA_SATISFACCION,
+        }
+        visible_queue = []
+        for numero in self.handoff_queue:
+            conversacion = self.conversaciones.get(numero)
+            if not conversacion:
+                continue
+            if conversacion.estado in survey_states:
+                continue
+            visible_queue.append(numero)
+
+        if not visible_queue:
             return "📋 *COLA DE HANDOFFS*\n\n✅ No hay conversaciones activas.\n\nTodas las consultas han sido atendidas."
 
         lines = ["📋 *COLA DE HANDOFFS*\n"]
 
-        for i, numero in enumerate(self.handoff_queue):
-            conversacion = self.get_conversacion(numero)
+        for i, numero in enumerate(visible_queue):
+            conversacion = self.conversaciones.get(numero)
+            if not conversacion:
+                continue
             is_active = (numero == self.active_handoff)
 
             # Calcular tiempo desde el inicio del handoff
@@ -372,13 +387,15 @@ class ConversationManager:
             lines.append("")  # Línea en blanco
 
         lines.append("─" * 30)
-        lines.append(f"📊 Total: {len(self.handoff_queue)} conversación(es)")
+        lines.append(f"📊 Total: {len(visible_queue)} conversación(es)")
 
         # Calcular tiempo promedio de espera
-        if len(self.handoff_queue) > 1:
+        if len(visible_queue) > 1:
             tiempos_espera = []
-            for numero in self.handoff_queue[1:]:  # Excluir el activo
-                conv = self.get_conversacion(numero)
+            for numero in visible_queue[1:]:  # Excluir el activo
+                conv = self.conversaciones.get(numero)
+                if not conv:
+                    continue
                 if conv.handoff_started_at:
                     delta = datetime.utcnow() - conv.handoff_started_at
                     tiempos_espera.append(delta.total_seconds() / 60)

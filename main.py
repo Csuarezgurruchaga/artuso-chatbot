@@ -221,8 +221,13 @@ async def handoff_ttl_sweep(token: str = Form(...)):
     cerradas = 0
     resolution_timeout_minutes = 10  # Timeout para preguntas de resolución
     
+    survey_states = {
+        EstadoConversacion.ESPERANDO_RESPUESTA_ENCUESTA,
+        EstadoConversacion.ENCUESTA_SATISFACCION,
+    }
+
     for conv in list(conversation_manager.conversaciones.values()):
-        if conv.atendido_por_humano or conv.estado == EstadoConversacion.ATENDIDO_POR_HUMANO:
+        if conv.atendido_por_humano or conv.estado in survey_states or conv.estado == EstadoConversacion.ATENDIDO_POR_HUMANO:
             should_close = False
             close_reason = ""
 
@@ -257,9 +262,21 @@ async def handoff_ttl_sweep(token: str = Form(...)):
                     if close_reason == "Oferta de encuesta sin respuesta":
                         # Cierre silencioso cuando no responde a oferta de encuesta (no enviar mensaje)
                         conv.survey_accepted = None  # Registrar como timeout
+                        logger.info(
+                            "survey_timeout client_phone=%s agent_phone=%s state=%s reason=offer_timeout",
+                            conv.numero_telefono,
+                            os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                            conv.estado,
+                        )
                         logger.info(f"⏱️ Timeout de oferta de encuesta para {conv.numero_telefono}")
                     elif close_reason == "Encuesta de satisfacción sin completar":
                         send_message(conv.numero_telefono, "¡Gracias por tu consulta! Damos por finalizada esta conversación. ✅")
+                        logger.info(
+                            "survey_timeout client_phone=%s agent_phone=%s state=%s reason=survey_incomplete",
+                            conv.numero_telefono,
+                            os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                            conv.estado,
+                        )
                     elif close_reason == "Pregunta de resolución sin respuesta":
                         send_message(conv.numero_telefono, "¡Gracias por tu consulta! Damos por finalizada esta conversación. ✅")
                     else:
@@ -279,7 +296,11 @@ async def handoff_ttl_sweep(token: str = Form(...)):
                     cerradas += 1
 
                     # Si hay siguiente conversación, notificar al agente
-                    if next_phone:
+                    suppress_agent_notify = close_reason in (
+                        "Oferta de encuesta sin respuesta",
+                        "Encuesta de satisfacción sin completar",
+                    )
+                    if next_phone and not suppress_agent_notify:
                         try:
                             next_conv = conversation_manager.get_conversacion(next_phone)
                             position = 1
@@ -544,6 +565,12 @@ async def webhook_whatsapp_receive(request: Request):
                 if any(kw in respuesta for kw in acepta_keywords):
                     # Cliente acepta la encuesta
                     conversacion_actual.survey_accepted = True
+                    logger.info(
+                        "survey_accepted client_phone=%s agent_phone=%s state=%s",
+                        numero_telefono,
+                        os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                        conversacion_actual.estado,
+                    )
                     
                     # Iniciar encuesta
                     success = survey_service.send_survey(numero_telefono, conversacion_actual)
@@ -571,6 +598,12 @@ async def webhook_whatsapp_receive(request: Request):
                 elif any(kw in respuesta for kw in rechaza_keywords):
                     # Cliente rechaza la encuesta
                     conversacion_actual.survey_accepted = False
+                    logger.info(
+                        "survey_declined client_phone=%s agent_phone=%s state=%s",
+                        numero_telefono,
+                        os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                        conversacion_actual.estado,
+                    )
                     
                     # Enviar mensaje de agradecimiento y cerrar
                     send_message(
@@ -625,6 +658,9 @@ async def webhook_whatsapp_receive(request: Request):
                 if survey_complete:
                     # Encuesta completada, finalizar conversación
                     # Verificar si esta conversación es la activa
+                    aborted_invalids = bool(
+                        conversacion_actual.datos_temporales.get("survey_aborted_invalids")
+                    )
                     active_phone = conversation_manager.get_active_handoff()
                     
                     if active_phone == numero_telefono:
@@ -633,7 +669,7 @@ async def webhook_whatsapp_receive(request: Request):
                         logger.info(f"✅ Encuesta completada y conversación finalizada para {numero_telefono} (era activa)")
                         
                         # Notificar al agente si hay siguiente conversación
-                        if next_phone:
+                        if next_phone and aborted_invalids:
                             try:
                                 next_conv = conversation_manager.get_conversacion(next_phone)
                                 position = 1
@@ -1099,16 +1135,26 @@ async def handle_agent_message(agent_phone: str, message: str, profile_name: str
 
             if command == 'done':
                 # Cerrar conversación activa y activar siguiente
+                old_active = conversation_manager.get_active_handoff()
                 response = agent_command_service.execute_done_command(agent_phone)
-                meta_whatsapp_service.send_text_message(agent_phone, response)
+                if response:
+                    meta_whatsapp_service.send_text_message(agent_phone, response)
 
                 # Si hay nuevo activo, notificar
                 new_active = conversation_manager.get_active_handoff()
                 if new_active:
-                    new_conv = conversation_manager.get_conversacion(new_active)
-                    position = 1
-                    total = conversation_manager.get_queue_size()
-                    _notify_handoff_activated(new_conv, position, total)
+                    if new_active == old_active:
+                        logger.info(
+                            "handoff_activated_suppressed client_phone=%s agent_phone=%s state=%s",
+                            new_active,
+                            agent_phone,
+                            conversation_manager.get_conversacion(new_active).estado,
+                        )
+                    else:
+                        new_conv = conversation_manager.get_conversacion(new_active)
+                        position = 1
+                        total = conversation_manager.get_queue_size()
+                        _notify_handoff_activated(new_conv, position, total)
                 return
 
             elif command == 'next':

@@ -102,6 +102,12 @@ class AgentCommandService:
             conversacion = conversation_manager.get_conversacion(active_phone)
             nombre_cliente = conversacion.nombre_usuario or "Cliente"
 
+            if conversacion.estado in (
+                EstadoConversacion.ESPERANDO_RESPUESTA_ENCUESTA,
+                EstadoConversacion.ENCUESTA_SATISFACCION,
+            ):
+                return ""
+
             # Verificar si las encuestas están habilitadas
             if survey_service.is_enabled():
                 # Enviar mensaje opt-in/opt-out de encuesta usando el servicio correcto
@@ -114,11 +120,29 @@ class AgentCommandService:
                     conversacion.estado = EstadoConversacion.ESPERANDO_RESPUESTA_ENCUESTA
                     conversacion.survey_offered = True
                     conversacion.survey_offer_sent_at = datetime.utcnow()
+                    conversacion.atendido_por_humano = False
 
-                    logger.info(f"✅ Oferta de encuesta enviada al cliente {active_phone}")
-                    return f"✅ Solicitud de cierre enviada a {nombre_cliente}.\n\n⏳ Esperando respuesta sobre la encuesta (auto-cierre en 2 min).\n\nLa conversación sigue activa hasta que el cliente responda o expire el tiempo."
+                    conversation_manager.remove_from_handoff_queue(active_phone)
+
+                    logger.info(
+                        "survey_offer_sent client_phone=%s agent_phone=%s state=%s",
+                        active_phone,
+                        agent_phone,
+                        conversacion.estado,
+                    )
+                    return self._build_done_agent_message(
+                        nombre_cliente,
+                        active_phone,
+                        with_survey=True,
+                    )
                 else:
                     logger.error(f"❌ Error enviando oferta de encuesta al cliente {active_phone}")
+                    active_now = conversation_manager.get_active_handoff()
+                    if active_now == active_phone:
+                        conversation_manager.close_active_handoff()
+                    else:
+                        conversation_manager.remove_from_handoff_queue(active_phone)
+                        conversation_manager.finalizar_conversacion(active_phone)
                     return f"❌ Error enviando mensaje al cliente. Intenta nuevamente."
             else:
                 # Encuestas deshabilitadas: comportamiento original (cerrar inmediatamente)
@@ -133,15 +157,28 @@ class AgentCommandService:
 
                 logger.info(f"✅ Agente {agent_phone} finalizó conversación con {active_phone} (encuestas deshabilitadas)")
 
-                # Mensaje de confirmación
-                if next_phone:
-                    return f"✅ Conversación con {nombre_cliente} finalizada.\n\n🔄 Activando siguiente conversación..."
-                else:
-                    return f"✅ Conversación con {nombre_cliente} finalizada.\n\n📋 Cola vacía. No hay más conversaciones pendientes."
+                return self._build_done_agent_message(
+                    nombre_cliente,
+                    active_phone,
+                    with_survey=False,
+                )
 
         except Exception as e:
             logger.error(f"Error ejecutando comando /done: {e}")
             return f"❌ Error finalizando conversación: {str(e)}"
+
+    def _build_done_agent_message(self, nombre_cliente: str, telefono: str, with_survey: bool) -> str:
+        queue_size = conversation_manager.get_queue_size()
+        base = f"✅ Cierre enviado a {nombre_cliente} ({telefono})."
+        if with_survey:
+            base += " ⏳ Encuesta en curso (auto-cierre 15 min)."
+        if queue_size > 1:
+            base += " Usa /queue o /next."
+        else:
+            base += " Usa /queue."
+        if queue_size == 0:
+            base += " Cola vacia."
+        return base
 
     def _build_survey_offer_message(self, nombre_cliente: str) -> str:
         """

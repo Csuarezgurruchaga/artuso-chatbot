@@ -113,7 +113,12 @@ class SurveyService:
             success = service.send_text_message(clean_id, message)
             
             if success:
-                logger.info(f"✅ Encuesta enviada al cliente {client_phone}")
+                logger.info(
+                    "survey_started client_phone=%s agent_phone=%s state=%s",
+                    client_phone,
+                    os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                    conversation.estado,
+                )
             else:
                 logger.error(f"❌ Error enviando encuesta al cliente {client_phone}")
             
@@ -150,16 +155,44 @@ class SurveyService:
             response = self._parse_response(message, question_data)
             if not response:
                 # Respuesta inválida, pedir que responda de nuevo
+                attempts = self._increment_invalid_attempts(conversation, current_question)
+                logger.info(
+                    "survey_invalid client_phone=%s agent_phone=%s state=%s question=%s attempts=%s",
+                    client_phone,
+                    os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                    conversation.estado,
+                    current_question,
+                    attempts,
+                )
+                if attempts >= 3:
+                    conversation.survey_accepted = None
+                    conversation.datos_temporales["survey_aborted_invalids"] = True
+                    self._save_survey_results(client_phone, conversation)
+                    logger.info(
+                        "survey_aborted_invalids client_phone=%s agent_phone=%s state=%s question=%s",
+                        client_phone,
+                        os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                        conversation.estado,
+                        current_question,
+                    )
+                    return True, self._build_completion_message()
                 return False, self._build_question_message(question_data, include_instructions=True)
-            
+
             # Guardar respuesta
             conversation.survey_responses[f'pregunta_{current_question}'] = response
+            self._reset_invalid_attempts(conversation, current_question)
             
             # Verificar si es la última pregunta
             if current_question >= len(self.questions):
                 # Encuesta completa, guardar resultados y KPIs, luego finalizar
                 self._save_survey_results(client_phone, conversation)
                 self._save_kpis(conversation)
+                logger.info(
+                    "survey_completed client_phone=%s agent_phone=%s state=%s",
+                    client_phone,
+                    os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                    conversation.estado,
+                )
                 return True, self._build_completion_message()
             else:
                 # Enviar siguiente pregunta
@@ -188,9 +221,35 @@ class SurveyService:
             message += f"{emoji} {option_text}\n"
 
         if include_instructions:
-            message += '\nResponde con el número (1, 2 o 3)'
+            message += f"\n{self._build_range_instructions(question_data)}"
 
         return message
+
+    def _build_range_instructions(self, question_data: Dict) -> str:
+        keys = sorted(question_data['options'].keys(), key=int)
+        if len(keys) == 1:
+            return f"Responde con el numero ({keys[0]})"
+        if len(keys) == 2:
+            return f"Responde con el numero ({keys[0]} o {keys[1]})"
+        return f"Responde con el numero ({', '.join(keys[:-1])} o {keys[-1]})"
+
+    def _invalid_attempt_key(self, question_number: int) -> str:
+        return f"survey_invalid_q{question_number}"
+
+    def _increment_invalid_attempts(self, conversation: ConversacionData, question_number: int) -> int:
+        key = self._invalid_attempt_key(question_number)
+        current = conversation.datos_temporales.get(key, 0)
+        try:
+            current_int = int(current)
+        except (TypeError, ValueError):
+            current_int = 0
+        current_int += 1
+        conversation.datos_temporales[key] = current_int
+        return current_int
+
+    def _reset_invalid_attempts(self, conversation: ConversacionData, question_number: int) -> None:
+        key = self._invalid_attempt_key(question_number)
+        conversation.datos_temporales.pop(key, None)
     
     def _build_completion_message(self) -> str:
         """Construye el mensaje de finalización de la encuesta"""
@@ -271,6 +330,9 @@ class SurveyService:
         try:
             # Obtener respuestas
             responses = conversation.survey_responses
+            def _response_or_na(key: str) -> str:
+                value = responses.get(key)
+                return value if value else "N/A"
 
             # Calcular duración del handoff en minutos
             duracion_minutos = 0
@@ -301,9 +363,9 @@ class SurveyService:
             row_data = [
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S'),  # fecha
                 self._mask_phone(client_phone),  # telefono_masked
-                responses.get('pregunta_1', ''),  # resolvio_problema
-                responses.get('pregunta_2', ''),  # amabilidad
-                responses.get('pregunta_3', ''),  # volveria_contactar
+                _response_or_na('pregunta_1'),  # resolvio_problema
+                _response_or_na('pregunta_2'),  # amabilidad
+                _response_or_na('pregunta_3'),  # volveria_contactar
                 duracion_minutos,  # duracion_handoff_minutos
                 str(conversation.survey_offered).lower(),  # survey_offered (true/false)
                 survey_accepted_str,  # survey_accepted (accepted/declined/timeout)

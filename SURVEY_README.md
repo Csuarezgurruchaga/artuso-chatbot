@@ -130,10 +130,14 @@ El sistema acepta múltiples formatos de respuesta:
   - Pregunta 2: `muy insatisfecho`, `insatisfecho`, `neutral`, `satisfecho`, `muy satisfecho`, `pésimo`, `malo`, `ok`, `bueno`, `bien`, `excelente`, `perfecto`
   - Pregunta 3: `sí`, `si`, `no`
 
+**Respuestas inválidas**:
+- Si la respuesta no coincide con el rango de la pregunta, se repite la misma pregunta con instrucciones claras.
+- Luego de 3 intentos inválidos en la misma pregunta, la encuesta se finaliza y se guardan parciales con `N/A`.
+
 ### Estados de Conversación
 
 - **`ESPERANDO_RESPUESTA_ENCUESTA`**: Esperando decisión del cliente (acepta/rechaza encuesta) - timeout 2 minutos
-- **`ENCUESTA_SATISFACCION`**: Estado activo durante la encuesta - timeout 15 minutos por pregunta
+- **`ENCUESTA_SATISFACCION`**: Estado activo durante la encuesta - timeout 15 minutos desde el inicio
 - **`survey_question_number`**: Número de pregunta actual (1, 2, 3)
 - **`survey_responses`**: Diccionario con las respuestas guardadas
 - **`survey_offered`**: Indica si se ofreció la encuesta
@@ -217,7 +221,7 @@ El sistema acepta múltiples formatos de respuesta:
 
 3. **Timeout muy rápido o muy lento**
    - Timeout de oferta: 2 minutos (en `main.py` TTL sweep)
-   - Timeout de preguntas: 15 minutos por pregunta
+   - Timeout de encuesta: 15 minutos desde el inicio
    - Ajustar según necesidad en código
 
 4. **Conversación no cierra después de rechazar**

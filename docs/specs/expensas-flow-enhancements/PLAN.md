@@ -10,9 +10,9 @@
    - Start expensas flow on "Si" and mark comprobante as completed.
 5. Implement `clients_sheet_service` to read/write `CLIENTES` (same spreadsheet as expensas) using JSON list with max 5.
 6. Add address selection flow in `ChatbotRules` for expensas and servicios:
-   - Buttons for <=2 addresses + "Otra Direccion".
-   - List picker for >2 + "Otra Direccion".
-   - Deletion flow if already 5 and user wants to add a new one.
+   - Texto numerado con direcciones y "Otra Direccion" como ultima opcion.
+   - Parseo de respuestas numericas y "uno/dos/tres/cuatro/cinco", "otra".
+   - Eliminacion via texto numerado si ya hay 5 y el usuario quiere agregar una nueva.
 7. Update confirmation messages to show attachment counts (no URLs).
 8. Update `email_service.py` to include clickable attachment links in service emails.
 9. Update `expensas_sheet_service.py` to store newline-separated URLs in `COMPROBANTE` (no HYPERLINK formula).
@@ -35,7 +35,7 @@
 - No backfill required initially.
 
 ## Integration points
-- WhatsApp interactive buttons/list picker (Meta Cloud API).
+- WhatsApp interactive buttons (Meta Cloud API) para fecha/media/confirmaciones.
 - Google Sheets (expensas spreadsheet).
 - GCS for media storage.
 - AWS SES email for service notifications.
@@ -44,8 +44,8 @@
 - AC1/AC2: Validate "Hoy/Ayer" buttons and exact text handling.
 - AC3/AC4: Media confirmation and flow initiation.
 - AC5/AC6: Multiple attachments stored and shown correctly.
-- AC7/AC8: Address selection, max 5, delete flow.
-- AC9: Service emails show attachments as links.
+- AC9/AC10/AC11/AC12: Seleccion de direccion por texto, max 5, delete flow, reemplazo por duplicado.
+- AC8: Service emails show attachments as links.
 
 ## Rollout steps
 1. Deploy to staging (if available) or test number in prod.

@@ -1,7 +1,7 @@
 # Expensas flow enhancements (fecha, media, direcciones)
 
 ## Summary
-Agregar boton "Ayer" y parsing de "hoy/ayer" para fecha de pago, iniciar flujo de expensas desde media con confirmacion, adjuntar multiples comprobantes/archivos, y permitir multiples direcciones por telefono con seleccion interactiva. Corregir el calculo de fecha de pago a horario Argentina solo para "hoy/ayer".
+Agregar boton "Ayer" y parsing de "hoy/ayer" para fecha de pago, iniciar flujo de expensas desde media con confirmacion, adjuntar multiples comprobantes/archivos, y permitir multiples direcciones por telefono con seleccion por texto numerado. Corregir el calculo de fecha de pago a horario Argentina solo para "hoy/ayer".
 
 ## Context
 El flujo actual de expensas pide fecha, monto, direccion y piso/depto en cada interaccion. Los usuarios suelen ser recurrentes y usan el mismo numero para distintos departamentos. Ademas, cuando envian una imagen/PDF de comprobante sin contexto, el bot no inicia automaticamente el flujo. Se detecto un problema de fecha al usar el boton "Hoy" fuera del horario UTC.
@@ -9,7 +9,7 @@ El flujo actual de expensas pide fecha, monto, direccion y piso/depto en cada in
 ## Goals
 - Hacer mas rapido el registro de expensas con botones "Hoy/Ayer" y parsing de texto.
 - Iniciar flujo de expensas desde media y reutilizar comprobantes.
-- Permitir multiples direcciones por telefono con seleccion y limite de 5.
+- Permitir multiples direcciones por telefono con seleccion por texto numerado y limite de 5.
 - Adjuntar multiples archivos en expensas y servicios sin mostrar URLs en WhatsApp.
 - Corregir fecha de pago a zona horaria Argentina solo para "hoy/ayer".
 
@@ -46,29 +46,33 @@ El flujo actual de expensas pide fecha, monto, direccion y piso/depto en cada in
 10. Si el media tiene caption/texto, usar ese texto para pre-rellenar campos del flujo correspondiente.
 11. Crear y usar hoja `CLIENTES` en el spreadsheet de expensas con una lista JSON de direcciones por telefono.
 12. Al llegar al paso de direccion:
-   - Si hay direcciones guardadas, mostrar botones con direcciones y un boton "Otra Direccion".
-   - Si hay mas de 2 direcciones, usar list picker e incluir "Otra Direccion".
-13. Al seleccionar una direccion guardada en expensas, autocompletar `direccion` y `piso_depto` y continuar con el siguiente campo.
-14. En servicios, al seleccionar una direccion guardada, completar `direccion_servicio` con "direccion + piso/depto".
-15. Al elegir "Otra Direccion", continuar flujo normal: pedir direccion y luego piso/depto.
-16. Guardar nueva direccion al confirmar expensas y servicios (estado ENVIANDO).
-17. Maximo 5 direcciones por telefono. Si se intenta guardar una sexta, pedir que elimine una existente (list picker).
-18. Si la nueva direccion+piso coincide con una existente (normalizada), reemplazar la existente y actualizar `last_used`.
-19. Actualizar `last_used` cuando el usuario selecciona una direccion guardada (expensas o servicios).
-20. Alcance: solo WhatsApp. Messenger mantiene comportamiento actual.
+   - Si hay direcciones guardadas, mostrar un texto numerado con las direcciones y una opcion final "Otra Direccion".
+   - No usar botones ni listas interactivas para esta seleccion.
+13. La seleccion de direccion debe aceptar:
+   - Numeros (1, 2, 3, ...)
+   - Palabras "uno/dos/tres/cuatro/cinco"
+   - "otra" o "otra direccion"
+14. Al seleccionar una direccion guardada en expensas, autocompletar `direccion` y `piso_depto` y continuar con el siguiente campo.
+15. En servicios, al seleccionar una direccion guardada, completar `direccion_servicio` con "direccion + piso/depto".
+16. Al elegir "Otra Direccion", continuar flujo normal: pedir direccion y luego piso/depto.
+17. Guardar nueva direccion al confirmar expensas y servicios (estado ENVIANDO).
+18. Maximo 5 direcciones por telefono. Si se intenta guardar una sexta, pedir que elimine una existente (texto numerado).
+19. Si la nueva direccion+piso coincide con una existente (normalizada), reemplazar la existente y actualizar `last_used`.
+20. Actualizar `last_used` cuando el usuario selecciona una direccion guardada (expensas o servicios).
+21. Alcance: solo WhatsApp. Messenger mantiene comportamiento actual.
 
 ## Non-functional requirements
 - Latencia: respuestas de botones y confirmaciones en <1s en condiciones normales.
 - Confiabilidad: si falla Sheets o GCS, el flujo debe continuar con mensajes de error claros.
 - Costo: no agregar dependencias ni servicios nuevos.
-- Compatibilidad: mantener el flujo actual si no hay direcciones guardadas o si botones fallan.
+- Compatibilidad: mantener el flujo actual si no hay direcciones guardadas.
 
 ## System design
 - Agregar un servicio `clients_sheet_service` que lee/escribe `CLIENTES` en el mismo spreadsheet de expensas.
 - Guardar direcciones como lista JSON en una sola celda por telefono.
 - En `ChatbotRules`/`ConversationManager`, agregar subestados para:
-  - Seleccion de direccion (`_seleccion_direccion_activa`)
-  - Eliminacion de direccion cuando hay 5 (`_eliminar_direccion_activa`)
+  - Seleccion de direccion (texto numerado)
+  - Eliminacion de direccion cuando hay 5 (texto numerado)
   - Confirmacion de media como expensas (`_media_confirmacion`)
 - En `main.py`, al recibir media:
   - Descargar, subir a GCS, guardar URL en lista de adjuntos y manejar confirmacion.
@@ -84,15 +88,22 @@ El flujo actual de expensas pide fecha, monto, direccion y piso/depto en cada in
   - "Hoy", "Ayer"
 - Confirmacion media sin contexto:
   - "Si", "No"
-- Seleccion direccion (<=2):
-  - "Direccion 1", "Direccion 2", "Otra Direccion"
-- List picker (>2):
-  - Direcciones y opcion "Otra Direccion"
+
+### Seleccion de direccion (texto numerado)
+Ejemplo de salida:
+```
+Tengo estas direcciones guardadas:
+1. Calle 1234 3B
+2. Otra Direccion
+
+Responde con el numero de la opcion.
+```
 
 ### Datos de entrada
 - Texto "hoy"/"ayer" exacto en paso `fecha_pago`.
 - Media image/document con caption opcional.
-- Seleccion de direccion o eliminacion via botones/lista.
+- Respuesta numerica (1, 2, 3...) o texto ("uno/dos/tres", "otra", "otra direccion") para elegir direccion.
+- Seleccion de direccion o eliminacion via texto numerado.
 
 ### Datos de salida
 - Confirmacion expensas con conteo de comprobantes.
@@ -126,7 +137,7 @@ Estructura JSON (lista):
 ## Error handling & failure modes
 - Fallo GCS: responder error y pedir reenvio del comprobante.
 - Fallo Sheets (CLIENTES): continuar flujo sin autocompletar direccion y registrar error en logs.
-- Fallo botones/lista: fallback a texto (opciones enumeradas).
+- Seleccion de direccion invalida: re-enviar texto numerado con opciones.
 - Media sin contexto + respuesta invalida: re-preguntar confirmacion.
 
 ## Security & privacy
@@ -151,13 +162,14 @@ Estructura JSON (lista):
   - Boton "Hoy/Ayer" con hora AR.
   - Media sin contexto (Si/No).
   - Multiples adjuntos en expensas y servicios.
-  - Seleccion de direccion guardada y "Otra Direccion".
+  - Seleccion de direccion guardada y "Otra Direccion" via texto numerado.
   - Llenado de `CLIENTES` y limite de 5.
 
 ## Decisions & trade-offs
 - Se usa Sheets como almacenamiento (sin DB) para simplicidad.
 - Se limita a 5 direcciones para evitar listas largas.
 - URLs no se muestran en WhatsApp por UX/privacidad; si quedan solo en email.
+- Se evita el uso de botones/listas en direcciones para prevenir truncado en UI.
 - No se soporta Messenger para reducir complejidad.
 
 ## Open Questions

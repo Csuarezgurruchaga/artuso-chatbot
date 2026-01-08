@@ -38,16 +38,20 @@
 9. **Direccion guardada**
    - Given telefono con direcciones guardadas
    - When llega al paso de direccion
-   - Then se muestran botones/lista con "Otra Direccion".
-10. **Maximo 5 direcciones**
+   - Then se muestra un texto numerado con "Otra Direccion" como ultima opcion.
+10. **Seleccion de direccion (texto)**
+    - Given el texto numerado de direcciones
+    - When el usuario responde con numero, "uno/dos/tres/cuatro/cinco" o "otra/otra direccion"
+    - Then se selecciona la direccion o se inicia el flujo de "Otra Direccion".
+11. **Maximo 5 direcciones**
     - Given 5 direcciones guardadas
     - When el usuario intenta agregar una nueva
-    - Then el sistema pide eliminar una direccion antes de guardar.
-11. **Reemplazo por duplicado**
+    - Then el sistema pide eliminar una direccion antes de guardar via texto numerado.
+12. **Reemplazo por duplicado**
     - Given una direccion+piso igual (normalizado)
     - When se intenta guardar nuevamente
     - Then se reemplaza la existente y se actualiza `last_used`.
-12. **Guardar direccion en servicios**
+13. **Guardar direccion en servicios**
     - Given una solicitud de servicio con "Otra Direccion"
     - When se confirma el servicio
     - Then la direccion se guarda en `CLIENTES`.
@@ -55,7 +59,7 @@
 ## Negative / edge cases
 - Si falla la subida a GCS, se informa error y se pide reenvio del comprobante.
 - Si falla Sheets, el flujo continua sin autocompletar direcciones.
-- Si botones/lista fallan, se usa fallback por texto (opciones enumeradas).
+- Si la respuesta de direccion es invalida, se re-envia el texto numerado.
 - Si el usuario envia media en encuesta/handoff, no se interrumpe ese flujo.
 
 ## Observability checks

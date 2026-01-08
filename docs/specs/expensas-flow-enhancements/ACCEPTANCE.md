@@ -43,15 +43,19 @@
     - Given el texto numerado de direcciones
     - When el usuario responde con numero, "uno/dos/tres/cuatro/cinco" o "otra/otra direccion"
     - Then se selecciona la direccion o se inicia el flujo de "Otra Direccion".
-11. **Maximo 5 direcciones**
+11. **Orden de direcciones**
+    - Given direcciones guardadas con distintos `last_used`
+    - When se muestran las opciones numeradas
+    - Then se ordenan de mas reciente a mas antigua.
+12. **Maximo 5 direcciones**
     - Given 5 direcciones guardadas
     - When el usuario intenta agregar una nueva
     - Then el sistema pide eliminar una direccion antes de guardar via texto numerado.
-12. **Reemplazo por duplicado**
+13. **Reemplazo por duplicado**
     - Given una direccion+piso igual (normalizado)
     - When se intenta guardar nuevamente
     - Then se reemplaza la existente y se actualiza `last_used`.
-13. **Guardar direccion en servicios**
+14. **Guardar direccion en servicios**
     - Given una solicitud de servicio con "Otra Direccion"
     - When se confirma el servicio
     - Then la direccion se guarda en `CLIENTES`.

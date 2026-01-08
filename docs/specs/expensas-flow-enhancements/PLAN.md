@@ -12,6 +12,7 @@
 6. Add address selection flow in `ChatbotRules` for expensas and servicios:
    - Texto numerado con direcciones y "Otra Direccion" como ultima opcion.
    - Parseo de respuestas numericas y "uno/dos/tres/cuatro/cinco", "otra".
+   - Ordenar direcciones por `last_used` descendente.
    - Eliminacion via texto numerado si ya hay 5 y el usuario quiere agregar una nueva.
 7. Update confirmation messages to show attachment counts (no URLs).
 8. Update `email_service.py` to include clickable attachment links in service emails.
@@ -44,7 +45,7 @@
 - AC1/AC2: Validate "Hoy/Ayer" buttons and exact text handling.
 - AC3/AC4: Media confirmation and flow initiation.
 - AC5/AC6: Multiple attachments stored and shown correctly.
-- AC9/AC10/AC11/AC12: Seleccion de direccion por texto, max 5, delete flow, reemplazo por duplicado.
+- AC9/AC10/AC11/AC12/AC13/AC14: Seleccion de direccion por texto, orden, max 5, delete flow, reemplazo por duplicado, guardar en servicios.
 - AC8: Service emails show attachments as links.
 
 ## Rollout steps

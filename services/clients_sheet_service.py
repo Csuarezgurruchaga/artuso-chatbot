@@ -72,6 +72,14 @@ class ClientsSheetService:
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
 
+    @staticmethod
+    def _sort_direcciones(direcciones: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        def _key(item: Dict[str, Any]) -> str:
+            value = item.get("last_used") or item.get("created_at") or ""
+            return str(value)
+
+        return sorted(direcciones, key=_key, reverse=True)
+
     @classmethod
     def _address_key(cls, direccion: str, piso: str) -> str:
         return f"{cls._normalize_text(direccion)}|{cls._normalize_text(piso)}"
@@ -102,7 +110,10 @@ class ClientsSheetService:
             if not row or len(row) < 2 or not row[1].strip():
                 return []
             try:
-                return json.loads(row[1])
+                parsed = json.loads(row[1])
+                if not isinstance(parsed, list):
+                    return []
+                return self._sort_direcciones(parsed)
             except json.JSONDecodeError:
                 logger.error("CLIENTES JSON invalido para telefono=%s", telefono)
                 return []
@@ -117,9 +128,10 @@ class ClientsSheetService:
             ws = self._get_sheet()
             row_idx, _ = self._find_row(ws, telefono)
             updated_at = self._now_iso()
+            direcciones_sorted = self._sort_direcciones(direcciones or [])
             payload = [
                 telefono,
-                json.dumps(direcciones, ensure_ascii=True),
+                json.dumps(direcciones_sorted, ensure_ascii=True),
                 updated_at,
             ]
             if row_idx:

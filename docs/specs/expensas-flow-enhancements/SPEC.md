@@ -52,14 +52,15 @@ El flujo actual de expensas pide fecha, monto, direccion y piso/depto en cada in
    - Numeros (1, 2, 3, ...)
    - Palabras "uno/dos/tres/cuatro/cinco"
    - "otra" o "otra direccion"
-14. Al seleccionar una direccion guardada en expensas, autocompletar `direccion` y `piso_depto` y continuar con el siguiente campo.
-15. En servicios, al seleccionar una direccion guardada, completar `direccion_servicio` con "direccion + piso/depto".
-16. Al elegir "Otra Direccion", continuar flujo normal: pedir direccion y luego piso/depto.
-17. Guardar nueva direccion al confirmar expensas y servicios (estado ENVIANDO).
-18. Maximo 5 direcciones por telefono. Si se intenta guardar una sexta, pedir que elimine una existente (texto numerado).
-19. Si la nueva direccion+piso coincide con una existente (normalizada), reemplazar la existente y actualizar `last_used`.
-20. Actualizar `last_used` cuando el usuario selecciona una direccion guardada (expensas o servicios).
-21. Alcance: solo WhatsApp. Messenger mantiene comportamiento actual.
+14. Mostrar las direcciones ordenadas por `last_used` descendente.
+15. Al seleccionar una direccion guardada en expensas, autocompletar `direccion` y `piso_depto` y continuar con el siguiente campo.
+16. En servicios, al seleccionar una direccion guardada, completar `direccion_servicio` con "direccion + piso/depto".
+17. Al elegir "Otra Direccion", continuar flujo normal: pedir direccion y luego piso/depto.
+18. Guardar nueva direccion al confirmar expensas y servicios (estado ENVIANDO).
+19. Maximo 5 direcciones por telefono. Si se intenta guardar una sexta, pedir que elimine una existente (texto numerado).
+20. Si la nueva direccion+piso coincide con una existente (normalizada), reemplazar la existente y actualizar `last_used`.
+21. Actualizar `last_used` cuando el usuario selecciona una direccion guardada (expensas o servicios).
+22. Alcance: solo WhatsApp. Messenger mantiene comportamiento actual.
 
 ## Non-functional requirements
 - Latencia: respuestas de botones y confirmaciones en <1s en condiciones normales.

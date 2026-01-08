@@ -954,6 +954,43 @@ Responde con el número de la opción que necesitas 📱"""
         return "\n".join(lines)
 
     @staticmethod
+    def _normalize_seleccion_texto(texto: str) -> str:
+        if not texto:
+            return ""
+        normalized = unicodedata.normalize("NFD", texto.lower().strip())
+        normalized = "".join(c for c in normalized if unicodedata.category(c) != "Mn")
+        normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    @staticmethod
+    def _parse_direccion_seleccion(mensaje: str, total: int) -> Optional[object]:
+        normalized = ChatbotRules._normalize_seleccion_texto(mensaje)
+        compact = normalized.replace(" ", "")
+        if compact in {"otra", "otradireccion"}:
+            return "otro"
+
+        word_map = {
+            "uno": 1,
+            "dos": 2,
+            "tres": 3,
+            "cuatro": 4,
+            "cinco": 5,
+        }
+        num = word_map.get(normalized)
+        if num is None:
+            match = re.search(r"\d+", normalized)
+            if match:
+                num = int(match.group())
+        if num is None:
+            return None
+        if num == total + 1:
+            return "otro"
+        if 1 <= num <= total:
+            return num - 1
+        return None
+
+    @staticmethod
     def _count_adjuntos(value) -> int:
         if isinstance(value, list):
             return len(value)
@@ -1054,22 +1091,21 @@ Responde con el número de la opción que necesitas 📱"""
             return None
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         if conversacion.datos_temporales.get("_direccion_seleccion_contexto"):
-            return ""
+            direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
+            if not direcciones:
+                direcciones = clients_sheet_service.get_direcciones(numero_telefono)
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_direcciones_guardadas",
+                    direcciones,
+                )
+            return ChatbotRules._build_direccion_fallback_text(direcciones)
         direcciones = clients_sheet_service.get_direcciones(numero_telefono)
         if not direcciones:
             conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
             return None
         conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", direcciones)
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", contexto)
-
-        success = False
-        if len(direcciones) <= 2:
-            success = ChatbotRules._send_direccion_buttons(numero_telefono, direcciones)
-        else:
-            success = ChatbotRules._send_direccion_list(numero_telefono, direcciones)
-
-        if success:
-            return ""
         return ChatbotRules._build_direccion_fallback_text(direcciones)
 
     @staticmethod
@@ -1106,10 +1142,6 @@ Responde con el número de la opción que necesitas 📱"""
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", contexto)
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", True)
         conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", direcciones)
-
-        success = ChatbotRules._send_eliminar_direccion_list(numero_telefono, direcciones)
-        if success:
-            return ""
         return ChatbotRules._build_eliminar_fallback_text(direcciones)
 
     @staticmethod
@@ -1119,14 +1151,21 @@ Responde con el número de la opción que necesitas 📱"""
         if not contexto:
             return None
         direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
-        if not mensaje.strip().isdigit():
+        if not direcciones:
+            direcciones = clients_sheet_service.get_direcciones(numero_telefono)
+            conversation_manager.set_datos_temporales(
+                numero_telefono,
+                "_direcciones_guardadas",
+                direcciones,
+            )
+        if not direcciones:
+            return None
+        seleccion = ChatbotRules._parse_direccion_seleccion(mensaje, len(direcciones))
+        if seleccion is None:
             return ChatbotRules._build_direccion_fallback_text(direcciones)
-        idx = int(mensaje.strip()) - 1
-        if idx == len(direcciones):
+        if seleccion == "otro":
             return ChatbotRules._procesar_direccion_otro(numero_telefono, contexto, direcciones)
-        if idx < 0 or idx >= len(direcciones):
-            return ChatbotRules._build_direccion_fallback_text(direcciones)
-        return ChatbotRules._apply_direccion_seleccionada(numero_telefono, direcciones[idx], contexto)
+        return ChatbotRules._apply_direccion_seleccionada(numero_telefono, direcciones[seleccion], contexto)
 
     @staticmethod
     def _procesar_eliminar_direccion_text(numero_telefono: str, mensaje: str) -> Optional[str]:

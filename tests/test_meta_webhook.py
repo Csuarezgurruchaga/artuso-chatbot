@@ -317,13 +317,14 @@ def test_meta_whatsapp_service_extract_message_data():
     result = service.extract_message_data(webhook_data)
     
     assert result is not None
-    numero, mensaje, msg_id, nombre, msg_type = result
+    numero, mensaje, msg_id, nombre, msg_type, caption = result
     
     assert numero == "+5491198765432"
     assert mensaje == "Hola, necesito ayuda"
     assert msg_id == "wamid.test123"
     assert nombre == "Juan Pérez"
     assert msg_type == "text"
+    assert caption == ""
 
 
 def test_meta_whatsapp_service_validate_signature():

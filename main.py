@@ -18,6 +18,7 @@ from services.whatsapp_handoff_service import whatsapp_handoff_service
 from services.email_service import email_service
 from services.expensas_sheet_service import expensas_sheet_service
 from services.gcs_storage_service import gcs_storage_service
+from services.clients_sheet_service import clients_sheet_service
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
 
@@ -83,6 +84,48 @@ def send_message(user_id: str, message: str) -> bool:
     return False
 
 
+def _append_url_to_list(conversacion: ConversacionData, key: str, url: str) -> list:
+    datos = conversacion.datos_temporales
+    current = datos.get(key)
+    if isinstance(current, list):
+        urls = current
+    elif current:
+        urls = [current]
+    else:
+        urls = []
+    urls.append(url)
+    datos[key] = urls
+    return urls
+
+
+def _persist_client_address(conversacion: ConversacionData) -> None:
+    data = conversacion.datos_temporales.get("_direccion_para_guardar")
+    if not data:
+        return
+    direccion = data.get("direccion", "")
+    piso_depto = data.get("piso_depto", "")
+    if not direccion:
+        return
+    try:
+        saved, action = clients_sheet_service.add_or_replace_direccion(
+            conversacion.numero_telefono,
+            direccion,
+            piso_depto,
+        )
+        if not saved:
+            logger.error(
+                "clients_sheet_save_failed phone=%s action=%s",
+                conversacion.numero_telefono,
+                action,
+            )
+    except Exception as exc:
+        logger.error(
+            "clients_sheet_exception phone=%s error=%s",
+            conversacion.numero_telefono,
+            str(exc),
+        )
+
+
 def _notify_handoff_activated(conversacion: ConversacionData, position: int, total: int) -> bool:
     """
     Notifica al agente sobre un handoff activo usando template si es posible.
@@ -127,6 +170,7 @@ def _postprocess_enviando(numero_telefono: str) -> None:
         if sheet_ok:
             mensaje_final = ChatbotRules.get_mensaje_final_exito()
             send_message(numero_telefono, mensaje_final)
+            _persist_client_address(conversacion)
             conversation_manager.finalizar_conversacion(numero_telefono)
             logger.info("Pago de expensas registrado para %s", numero_telefono)
         else:
@@ -142,6 +186,7 @@ def _postprocess_enviando(numero_telefono: str) -> None:
                 pass
             mensaje_final = ChatbotRules.get_mensaje_final_exito()
             send_message(numero_telefono, mensaje_final)
+            _persist_client_address(conversacion)
             conversation_manager.finalizar_conversacion(numero_telefono)
             logger.info("Solicitud de servicio enviada para %s", numero_telefono)
         else:
@@ -401,7 +446,7 @@ async def webhook_whatsapp_receive(request: Request):
         message_data = messaging_service.extract_message_data(webhook_data)
         
         if message_data:
-            numero_telefono, mensaje_usuario, message_id, profile_name, message_type = message_data
+            numero_telefono, mensaje_usuario, message_id, profile_name, message_type, message_caption = message_data
 
             logger.info(
                 f"Mensaje recibido de {numero_telefono} ({profile_name or 'sin nombre'}): {mensaje_usuario}"
@@ -436,8 +481,58 @@ async def webhook_whatsapp_receive(request: Request):
 
             # Manejar comprobantes adjuntos
             if message_type in {"image", "document"} and mensaje_usuario.startswith("media:"):
-                media_id = mensaje_usuario.split("media:", 1)[1]
                 conversacion_media = conversation_manager.get_conversacion(numero_telefono)
+                survey_states = {
+                    EstadoConversacion.ESPERANDO_RESPUESTA_ENCUESTA,
+                    EstadoConversacion.ENCUESTA_SATISFACCION,
+                }
+
+                if (
+                    conversacion_media.estado in survey_states
+                    or conversacion_media.atendido_por_humano
+                    or conversacion_media.estado == EstadoConversacion.ATENDIDO_POR_HUMANO
+                ):
+                    logger.info(
+                        "media_ignored phone=%s state=%s",
+                        numero_telefono,
+                        conversacion_media.estado,
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                if numero_telefono.startswith("messenger:"):
+                    send_message(
+                        numero_telefono,
+                        "Recibí el archivo, pero ahora no puedo procesarlo por este canal.",
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                media_id = mensaje_usuario.split("media:", 1)[1]
+                media_data = meta_whatsapp_service.download_media(media_id)
+                if not media_data:
+                    send_message(
+                        numero_telefono,
+                        "❌ No pude descargar el archivo. Probá enviar nuevamente.",
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                content, mime_type = media_data
+                ext = COMPROBANTE_MIME_EXT.get(mime_type, "")
+                if not ext:
+                    send_message(
+                        numero_telefono,
+                        "❌ Formato no soportado. Enviá PNG, JPG, PDF o HEIC.",
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                url = gcs_storage_service.upload_public(content, mime_type, ext)
+                if not url:
+                    send_message(
+                        numero_telefono,
+                        "❌ No pude guardar el archivo. Intentá más tarde.",
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                caption_text = (message_caption or "").strip()
                 campo_siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
                 esperando_comprobante = (
                     conversacion_media.estado == EstadoConversacion.RECOLECTANDO_SECUENCIAL
@@ -448,34 +543,17 @@ async def webhook_whatsapp_receive(request: Request):
                     and conversacion_media.datos_temporales.get("_campo_a_corregir") == "comprobante"
                 )
 
-                if esperando_comprobante or corrigiendo_comprobante:
-                    media_data = meta_whatsapp_service.download_media(media_id)
-                    if not media_data:
-                        send_message(
-                            numero_telefono,
-                            "❌ No pude descargar el comprobante. Probá enviar nuevamente.",
-                        )
-                        return PlainTextResponse("", status_code=200)
-
-                    content, mime_type = media_data
-                    ext = COMPROBANTE_MIME_EXT.get(mime_type, "")
-                    if not ext:
-                        send_message(
-                            numero_telefono,
-                            "❌ Formato no soportado. Enviá PNG, JPG, PDF o HEIC.",
-                        )
-                        return PlainTextResponse("", status_code=200)
-
-                    url = gcs_storage_service.upload_public(content, mime_type, ext)
-                    if not url:
-                        send_message(
-                            numero_telefono,
-                            "❌ No pude guardar el comprobante. Intentá más tarde.",
-                        )
-                        return PlainTextResponse("", status_code=200)
+                if conversacion_media.tipo_consulta == TipoConsulta.PAGO_EXPENSAS and conversacion_media.estado not in {
+                    EstadoConversacion.INICIO,
+                    EstadoConversacion.ESPERANDO_OPCION,
+                }:
+                    _append_url_to_list(conversacion_media, "comprobante", url)
+                    logger.info(
+                        "media_saved_as_comprobante phone=%s",
+                        numero_telefono,
+                    )
 
                     if corrigiendo_comprobante:
-                        conversation_manager.set_datos_temporales(numero_telefono, "comprobante", url)
                         valido, error = conversation_manager.validar_y_guardar_datos(numero_telefono)
                         if not valido:
                             send_message(numero_telefono, f"❌ Error al actualizar: {error}")
@@ -489,7 +567,18 @@ async def webhook_whatsapp_receive(request: Request):
                         )
                         return PlainTextResponse("", status_code=200)
 
-                    conversation_manager.marcar_campo_completado(numero_telefono, "comprobante", url)
+                    if caption_text:
+                        respuesta_caption = ChatbotRules.procesar_mensaje(
+                            numero_telefono,
+                            caption_text,
+                            profile_name,
+                        )
+                        if respuesta_caption:
+                            send_message(numero_telefono, respuesta_caption)
+                        _maybe_notify_handoff(numero_telefono)
+                        _postprocess_enviando(numero_telefono)
+                        return PlainTextResponse("", status_code=200)
+
                     siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
                     if not siguiente:
                         conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
@@ -501,16 +590,63 @@ async def webhook_whatsapp_receive(request: Request):
                         )
                         return PlainTextResponse("", status_code=200)
 
+                    if esperando_comprobante:
+                        send_message(
+                            numero_telefono,
+                            ChatbotRules._get_pregunta_campo_secuencial(siguiente),
+                        )
+                        return PlainTextResponse("", status_code=200)
+
                     send_message(
                         numero_telefono,
-                        ChatbotRules._get_pregunta_campo_secuencial(siguiente),
+                        "🧾 Comprobante recibido.\n\n"
+                        + ChatbotRules._get_pregunta_campo_secuencial(siguiente),
                     )
                     return PlainTextResponse("", status_code=200)
 
-                send_message(
-                    numero_telefono,
-                    "Recibí el archivo, pero ahora no necesito un comprobante.",
-                )
+                if conversacion_media.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO and conversacion_media.estado not in {
+                    EstadoConversacion.INICIO,
+                    EstadoConversacion.ESPERANDO_OPCION,
+                }:
+                    _append_url_to_list(conversacion_media, "adjuntos_servicio", url)
+                    logger.info(
+                        "adjuntos_servicio_count phone=%s count=%s",
+                        numero_telefono,
+                        len(conversacion_media.datos_temporales.get("adjuntos_servicio", [])),
+                    )
+
+                    if caption_text:
+                        respuesta_caption = ChatbotRules.procesar_mensaje(
+                            numero_telefono,
+                            caption_text,
+                            profile_name,
+                        )
+                        if respuesta_caption:
+                            send_message(numero_telefono, respuesta_caption)
+                        _maybe_notify_handoff(numero_telefono)
+                        _postprocess_enviando(numero_telefono)
+                        return PlainTextResponse("", status_code=200)
+
+                    siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
+                    if siguiente:
+                        send_message(
+                            numero_telefono,
+                            "📎 Archivo recibido.\n\n"
+                            + ChatbotRules._get_pregunta_campo_secuencial(siguiente),
+                        )
+                    return PlainTextResponse("", status_code=200)
+
+                _append_url_to_list(conversacion_media, "adjuntos_pendientes", url)
+                if caption_text:
+                    existing_caption = conversacion_media.datos_temporales.get("adjuntos_pendientes_caption", "")
+                    combined = f"{existing_caption}\n{caption_text}" if existing_caption else caption_text
+                    conversation_manager.set_datos_temporales(
+                        numero_telefono,
+                        "adjuntos_pendientes_caption",
+                        combined,
+                    )
+                conversation_manager.set_datos_temporales(numero_telefono, "_media_confirmacion", True)
+                ChatbotRules.send_media_confirmacion(numero_telefono)
                 return PlainTextResponse("", status_code=200)
 
             # Fallback para contenidos no-texto
@@ -989,6 +1125,17 @@ async def handle_interactive_button(numero_telefono: str, button_id: str, profil
                 return ChatbotRules._aplicar_opcion_menu(numero_telefono, opcion, "", "button")
             return ChatbotRules.get_mensaje_error_opcion()
 
+        direccion_response = ChatbotRules.procesar_direccion_interactive(numero_telefono, button_id)
+        if direccion_response is not None:
+            return direccion_response
+
+        if button_id in {"media_expensas_si", "media_expensas_no"}:
+            respuesta = ChatbotRules._procesar_confirmacion_media(
+                numero_telefono,
+                "si" if button_id.endswith("_si") else "no",
+            )
+            return respuesta or ""
+
         # Manejar selección de tipo de servicio
         service_options = {option["id"]: option for option in ChatbotRules.SERVICE_TYPE_OPTIONS}
         if button_id in service_options:
@@ -1006,8 +1153,16 @@ async def handle_interactive_button(numero_telefono: str, button_id: str, profil
                 conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
                 return ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
 
-            # Asegurar estado y pedir ubicación
+            # Asegurar estado y continuar con ubicación
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.RECOLECTANDO_SECUENCIAL)
+            caption_pendiente = conversacion.datos_temporales.pop("adjuntos_pendientes_caption", "")
+            if caption_pendiente:
+                return ChatbotRules._procesar_campo_secuencial(numero_telefono, caption_pendiente)
+
+            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "servicio")
+            if direccion_prompt is not None:
+                return direccion_prompt
+
             return ChatbotRules._get_pregunta_campo_secuencial("direccion_servicio")
             
         elif button_id == "volver_menu":
@@ -1023,10 +1178,13 @@ async def handle_interactive_button(numero_telefono: str, button_id: str, profil
             conversation_manager.finalizar_conversacion(numero_telefono)
             return "¡Gracias por contactarnos! 👋 Esperamos poder ayudarte en el futuro."
 
-        elif button_id == "fecha_hoy":
+        elif button_id in {"fecha_hoy", "fecha_ayer"}:
             from datetime import datetime, timedelta
+            from zoneinfo import ZoneInfo
 
-            fecha_hoy = (datetime.utcnow() - timedelta(hours=3)).strftime("%d/%m/%Y")
+            tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+            delta = 0 if button_id == "fecha_hoy" else 1
+            fecha_hoy = (datetime.now(tz_ar) - timedelta(days=delta)).strftime("%d/%m/%Y")
 
             if (
                 conversacion.estado == EstadoConversacion.CORRIGIENDO_CAMPO
@@ -1063,6 +1221,14 @@ async def handle_interactive_button(numero_telefono: str, button_id: str, profil
                 return ChatbotRules._get_pregunta_campo_secuencial("piso_depto")
 
             conversation_manager.marcar_campo_completado(numero_telefono, "piso_depto", sugerido)
+            if conversacion.datos_temporales.get("_direccion_nueva"):
+                direccion = conversacion.datos_temporales.get("direccion", "")
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_direccion_para_guardar",
+                    {"direccion": direccion, "piso_depto": sugerido},
+                )
+                conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
             conversation_manager.set_datos_temporales(numero_telefono, "_piso_depto_sugerido", None)
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.RECOLECTANDO_SECUENCIAL)
             siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)

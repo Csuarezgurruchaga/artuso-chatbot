@@ -238,7 +238,7 @@ class MetaMessengerService:
             logger.error(f"Error validando firma de webhook Messenger: {str(e)}")
             return False
     
-    def extract_message_data(self, webhook_data: dict) -> Optional[Tuple[str, str, str, str, str]]:
+    def extract_message_data(self, webhook_data: dict) -> Optional[Tuple[str, str, str, str, str, str]]:
         """
         Extrae datos de mensaje del webhook de Messenger.
         
@@ -246,7 +246,7 @@ class MetaMessengerService:
             webhook_data: Payload del webhook
             
         Returns:
-            Optional[Tuple]: (sender_id, mensaje, message_id, sender_name, message_type) o None
+            Optional[Tuple]: (sender_id, mensaje, message_id, sender_name, message_type, caption) o None
         """
         try:
             # Estructura Messenger: entry[0].messaging[0]
@@ -284,7 +284,8 @@ class MetaMessengerService:
                         postback.get('payload', ''),
                         '',
                         '',
-                        'postback'
+                        'postback',
+                        ''
                     )
                 return None
             
@@ -314,7 +315,7 @@ class MetaMessengerService:
             # Prefijo para identificar que es Messenger (no número de teléfono)
             messenger_id = f"messenger:{sender_id}"
             
-            return (messenger_id, text_body, message_id, sender_name, message_type)
+            return (messenger_id, text_body, message_id, sender_name, message_type, '')
             
         except Exception as e:
             logger.error(f"Error extrayendo datos del webhook Messenger: {str(e)}")

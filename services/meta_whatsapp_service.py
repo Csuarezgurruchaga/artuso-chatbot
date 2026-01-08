@@ -507,7 +507,7 @@ class MetaWhatsAppService:
             logger.error(f"Error en verificación de webhook: {str(e)}")
             return None
     
-    def extract_message_data(self, webhook_data: dict) -> Optional[Tuple[str, str, str, str, str]]:
+    def extract_message_data(self, webhook_data: dict) -> Optional[Tuple[str, str, str, str, str, str]]:
         """
         Extrae datos de mensaje del webhook de Meta.
         
@@ -515,7 +515,7 @@ class MetaWhatsAppService:
             webhook_data: Payload del webhook
             
         Returns:
-            Optional[Tuple]: (numero_telefono, mensaje, message_id, profile_name, message_type) o None si no es válido
+            Optional[Tuple]: (numero_telefono, mensaje, message_id, profile_name, message_type, caption) o None
         """
         try:
             # Estructura: entry[0].changes[0].value
@@ -564,6 +564,7 @@ class MetaWhatsAppService:
             
             # Extraer texto/media según el tipo
             text_body = ''
+            caption_text = ''
             
             if message_type == 'text':
                 text_body = message.get('text', {}).get('body', '')
@@ -587,6 +588,7 @@ class MetaWhatsAppService:
                 # Imagen (registrar pero no procesar por ahora)
                 image = message.get('image', {})
                 media_id = image.get('id', '')
+                caption_text = image.get('caption', '') or ''
                 text_body = f"media:{media_id}" if media_id else ''
             
             elif message_type == 'audio':
@@ -601,13 +603,14 @@ class MetaWhatsAppService:
                 logger.info("Mensaje de tipo documento recibido de %s", from_number)
                 document = message.get('document', {})
                 media_id = document.get('id', '')
+                caption_text = document.get('caption', '') or ''
                 text_body = f"media:{media_id}" if media_id else ''
             
             # Asegurar formato E.164 (agregar + si no lo tiene)
             if from_number and not from_number.startswith('+'):
                 from_number = f'+{from_number}'
             
-            return (from_number, text_body, message_id, profile_name, message_type)
+            return (from_number, text_body, message_id, profile_name, message_type, caption_text)
             
         except Exception as e:
             logger.error(f"Error extrayendo datos del webhook: {str(e)}")

@@ -88,6 +88,20 @@ class EmailService:
             subject = "Nueva solicitud de servicio - Generado por Artu"
             fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
 
+            adjuntos = datos.get("adjuntos_servicio") or []
+            adjuntos_html = ""
+            if adjuntos:
+                links = "<br>".join(
+                    f'<a href="{url}">📎 Archivo {idx}</a>'
+                    for idx, url in enumerate(adjuntos, start=1)
+                )
+                adjuntos_html = f"""
+                        <tr>
+                            <td style="padding: 6px 0; font-weight: bold;">Adjuntos:</td>
+                            <td style="padding: 6px 0;">{links}</td>
+                        </tr>
+                """
+
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -114,6 +128,7 @@ class EmailService:
                             <td style="padding: 6px 0; font-weight: bold;">Detalle:</td>
                             <td style="padding: 6px 0;">{datos.get('detalle_servicio', '')}</td>
                         </tr>
+                        {adjuntos_html}
                         <tr>
                             <td style="padding: 6px 0; font-weight: bold;">WhatsApp:</td>
                             <td style="padding: 6px 0;">{conversacion.numero_telefono}</td>

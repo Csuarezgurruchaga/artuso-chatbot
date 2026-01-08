@@ -6,14 +6,33 @@ from .models import EstadoConversacion, TipoConsulta
 from .states import conversation_manager
 from config.company_profiles import get_active_company_profile
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
+from services.clients_sheet_service import clients_sheet_service
 
 POST_FINALIZADO_WINDOW_SECONDS = int(os.getenv("POST_FINALIZADO_WINDOW_SECONDS", "120"))
 POST_FINALIZADO_ACK_MESSAGE = os.getenv(
     "POST_FINALIZADO_ACK_MESSAGE",
     "¡Gracias por tu mensaje! Ya registramos tu solicitud. Si necesitás otra cosa, escribime \"hola\" para comenzar de nuevo. 🤖",
 )
+AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def _fecha_argentina(days_delta: int = 0) -> str:
+    fecha = datetime.now(AR_TZ) + timedelta(days=days_delta)
+    return fecha.strftime("%d/%m/%Y")
+
+
+def _parse_fecha_hoy_ayer(texto: str) -> Optional[str]:
+    if not texto:
+        return None
+    normalized = texto.strip().lower()
+    if normalized == "hoy":
+        return _fecha_argentina(0)
+    if normalized == "ayer":
+        return _fecha_argentina(-1)
+    return None
 
 def normalizar_texto(texto: str) -> str:
     """
@@ -84,6 +103,7 @@ class ChatbotRules:
         {"id": "servicio_fumigacion", "title": "Fumigación", "value": "Fumigación"},
         {"id": "servicio_otro", "title": "Otro servicio", "value": "Otro servicio"},
     )
+    MAX_DIRECCIONES_GUARDADAS = 5
 
     GRATITUDE_KEYWORDS = {
         "gracias",
@@ -278,8 +298,24 @@ Responde con el número de la opción que necesitas 📱"""
 
     @staticmethod
     def _aplicar_tipo_consulta(numero_telefono: str, tipo_consulta: TipoConsulta, mensaje: str, source: str, handoff_contexto: str = "") -> str:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        adjuntos_pendientes = conversacion.datos_temporales.get("adjuntos_pendientes") or []
+        caption_pendiente = conversacion.datos_temporales.get("adjuntos_pendientes_caption", "")
+
         conversation_manager.set_tipo_consulta(numero_telefono, tipo_consulta)
         conversation_manager.clear_datos_temporales(numero_telefono)
+        if adjuntos_pendientes:
+            conversation_manager.set_datos_temporales(
+                numero_telefono,
+                "adjuntos_pendientes",
+                adjuntos_pendientes,
+            )
+        if caption_pendiente:
+            conversation_manager.set_datos_temporales(
+                numero_telefono,
+                "adjuntos_pendientes_caption",
+                caption_pendiente,
+            )
         try:
             metrics_service.on_intent(tipo_consulta.value)
         except Exception:
@@ -293,13 +329,53 @@ Responde con el número de la opción que necesitas 📱"""
         conversation_manager.update_estado(numero_telefono, EstadoConversacion.RECOLECTANDO_SECUENCIAL)
 
         if tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
+            if adjuntos_pendientes:
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "comprobante",
+                    list(adjuntos_pendientes),
+                )
+                conversation_manager.set_datos_temporales(numero_telefono, "adjuntos_pendientes", None)
             if not numero_telefono.startswith("messenger:"):
                 success = ChatbotRules.send_fecha_pago_hoy_button(numero_telefono)
                 if success:
-                    return ""
-            return ChatbotRules._get_pregunta_campo_secuencial("fecha_pago")
+                    respuesta_inicio = ""
+                    if caption_pendiente and source != "media":
+                        conversation_manager.set_datos_temporales(
+                            numero_telefono,
+                            "adjuntos_pendientes_caption",
+                            None,
+                        )
+                        respuesta_caption = ChatbotRules.procesar_mensaje(
+                            numero_telefono,
+                            caption_pendiente,
+                            conversacion.nombre_usuario or "",
+                        )
+                        return respuesta_caption or respuesta_inicio
+                    return respuesta_inicio
+            respuesta_inicio = ChatbotRules._get_pregunta_campo_secuencial("fecha_pago")
+            if caption_pendiente and source != "media":
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "adjuntos_pendientes_caption",
+                    None,
+                )
+                respuesta_caption = ChatbotRules.procesar_mensaje(
+                    numero_telefono,
+                    caption_pendiente,
+                    conversacion.nombre_usuario or "",
+                )
+                return respuesta_caption or respuesta_inicio
+            return respuesta_inicio
 
         if tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+            if adjuntos_pendientes:
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "adjuntos_servicio",
+                    list(adjuntos_pendientes),
+                )
+                conversation_manager.set_datos_temporales(numero_telefono, "adjuntos_pendientes", None)
             mensaje_tipo = (
                 "Perfecto 👍\n"
                 "Para ayudarte mejor, voy a hacerte unas preguntas cortitas.\n"
@@ -463,6 +539,85 @@ Responde con el número de la opción que necesitas 📱"""
         fallback = f"{mensaje}\n\nResponde SI para confirmar o NO para corregir."
         meta_whatsapp_service.send_text_message(numero_telefono, fallback)
         return False
+
+    @staticmethod
+    def send_media_confirmacion(numero_telefono: str) -> bool:
+        """
+        Envía confirmación para identificar si un media es pago de expensas.
+        """
+        from services.meta_whatsapp_service import meta_whatsapp_service
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        buttons = [
+            {"id": "media_expensas_si", "title": "Si"},
+            {"id": "media_expensas_no", "title": "No"},
+        ]
+
+        success = meta_whatsapp_service.send_interactive_buttons(
+            numero_telefono,
+            body_text="Este archivo es un pago de expensas?",
+            buttons=buttons,
+        )
+
+        if success:
+            logger.info("media_confirm_prompted phone=%s", numero_telefono)
+            return True
+
+        logger.error("media_confirm_prompt_failed phone=%s", numero_telefono)
+        meta_whatsapp_service.send_text_message(
+            numero_telefono,
+            "Este archivo es un pago de expensas? Responde SI o NO.",
+        )
+        return False
+
+    @staticmethod
+    def _procesar_confirmacion_media(numero_telefono: str, mensaje: str) -> Optional[str]:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        if not conversacion.datos_temporales.get("_media_confirmacion"):
+            return None
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        respuesta = mensaje.strip().lower()
+        acepta = {"si", "sí", "1", "1️⃣"}
+        rechaza = {"no", "2", "2️⃣"}
+
+        if respuesta in acepta:
+            conversacion.datos_temporales["_media_confirmacion"] = None
+            logger.info("media_confirmed_as_expensas phone=%s", numero_telefono)
+            respuesta_inicio = ChatbotRules._aplicar_tipo_consulta(
+                numero_telefono,
+                TipoConsulta.PAGO_EXPENSAS,
+                "media",
+                "media",
+            )
+            caption_pendiente = conversacion.datos_temporales.pop("adjuntos_pendientes_caption", "")
+            if caption_pendiente:
+                respuesta_caption = ChatbotRules.procesar_mensaje(
+                    numero_telefono,
+                    caption_pendiente,
+                    conversacion.nombre_usuario or "",
+                )
+                return respuesta_caption or respuesta_inicio
+            return respuesta_inicio
+
+        if respuesta in rechaza:
+            conversacion.datos_temporales["_media_confirmacion"] = None
+            conversation_manager.update_estado(numero_telefono, EstadoConversacion.ESPERANDO_OPCION)
+            logger.info("media_confirmed_not_expensas phone=%s", numero_telefono)
+            if not numero_telefono.startswith("messenger:"):
+                success = ChatbotRules.send_menu_interactivo(
+                    numero_telefono,
+                    conversacion.nombre_usuario or "",
+                )
+                if success:
+                    return ""
+            return ChatbotRules.get_mensaje_inicial_personalizado(conversacion.nombre_usuario)
+
+        return "Por favor responde SI o NO."
     
     @staticmethod
     def get_saludo_inicial(nombre_usuario: str = "") -> str:
@@ -622,7 +777,12 @@ Responde con el número de la opción que necesitas 📱"""
 
         if conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             comentario = datos.get('comentario') or "Sin comentario"
-            comprobante = "Adjunto" if datos.get("comprobante") else "No"
+            comprobante_count = ChatbotRules._count_adjuntos(datos.get("comprobante"))
+            comprobante = (
+                ChatbotRules._format_archivos(comprobante_count)
+                if comprobante_count
+                else "No"
+            )
             return (
                 "📋 *Resumen del pago de expensas:*\n\n"
                 f"📅 *Fecha de pago:* {datos.get('fecha_pago', '')}\n"
@@ -636,11 +796,17 @@ Responde con el número de la opción que necesitas 📱"""
             )
 
         if conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+            adjuntos_count = ChatbotRules._count_adjuntos(datos.get("adjuntos_servicio"))
+            adjuntos_texto = ""
+            if adjuntos_count:
+                adjuntos_texto = f"📎 *Adjuntos:* {ChatbotRules._format_archivos(adjuntos_count)}\n"
             return (
                 "📋 *Resumen de tu solicitud de servicio:*\n\n"
                 f"🛠️ *Tipo de servicio:* {datos.get('tipo_servicio', '')}\n"
                 f"📍 *Ubicación:* {datos.get('direccion_servicio', '')}\n"
-                f"📝 *Detalle:* {datos.get('detalle_servicio', '')}\n\n"
+                f"📝 *Detalle:* {datos.get('detalle_servicio', '')}\n"
+                f"{adjuntos_texto}"
+                "\n"
                 "¿Es correcta toda la información?\n"
                 "Respondé *SI* para confirmar o *NO* para modificar."
             )
@@ -760,6 +926,298 @@ Responde con el número de la opción que necesitas 📱"""
             logger.error("❌ Error enviando sugerencia de piso/depto a %s", numero_telefono)
 
         return success
+
+    @staticmethod
+    def _truncate_text(texto: str, max_len: int) -> str:
+        if len(texto) <= max_len:
+            return texto
+        if max_len <= 3:
+            return texto[:max_len]
+        return texto[: max_len - 3] + "..."
+
+    @staticmethod
+    def _format_direccion_label(direccion: str, piso: str) -> str:
+        direccion = (direccion or "").strip()
+        piso = (piso or "").strip()
+        if direccion and piso:
+            return f"{direccion} {piso}"
+        return direccion or piso or "Direccion"
+
+    @staticmethod
+    def _build_direccion_fallback_text(direcciones: list) -> str:
+        lines = ["Tengo estas direcciones guardadas:"]
+        for idx, item in enumerate(direcciones, start=1):
+            label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
+            lines.append(f"{idx}. {label}")
+        lines.append(f"{len(direcciones) + 1}. Otra Direccion")
+        lines.append("\nResponde con el numero de la opcion.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _count_adjuntos(value) -> int:
+        if isinstance(value, list):
+            return len(value)
+        if value:
+            return 1
+        return 0
+
+    @staticmethod
+    def _format_archivos(count: int) -> str:
+        if count == 1:
+            return "1 archivo"
+        return f"{count} archivos"
+
+    @staticmethod
+    def _build_eliminar_fallback_text(direcciones: list) -> str:
+        lines = ["Selecciona la direccion que queres eliminar:"]
+        for idx, item in enumerate(direcciones, start=1):
+            label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
+            lines.append(f"{idx}. {label}")
+        lines.append("\nResponde con el numero de la opcion.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _send_direccion_buttons(numero_telefono: str, direcciones: list) -> bool:
+        from services.meta_whatsapp_service import meta_whatsapp_service
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        buttons = []
+        for idx, item in enumerate(direcciones):
+            label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
+            title = ChatbotRules._truncate_text(label, 20)
+            buttons.append({"id": f"dir_sel_{idx}", "title": title})
+        buttons.append({"id": "dir_otro", "title": "Otra Direccion"})
+
+        success = meta_whatsapp_service.send_interactive_buttons(
+            numero_telefono,
+            body_text="Selecciona una direccion guardada o elegi Otra Direccion.",
+            buttons=buttons,
+        )
+        if success:
+            logger.info("direccion_seleccion_enviada phone=%s count=%s", numero_telefono, len(direcciones))
+        return success
+
+    @staticmethod
+    def _send_direccion_list(numero_telefono: str, direcciones: list) -> bool:
+        from services.meta_whatsapp_service import meta_whatsapp_service
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        rows = []
+        for idx, item in enumerate(direcciones):
+            label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
+            title = ChatbotRules._truncate_text(label, 24)
+            rows.append({"id": f"dir_sel_{idx}", "title": title})
+        rows.append({"id": "dir_otro", "title": "Otra Direccion"})
+
+        sections = [{"title": "Direcciones", "rows": rows}]
+        success = meta_whatsapp_service.send_interactive_list(
+            numero_telefono,
+            body_text="Selecciona una direccion guardada o elegi Otra Direccion.",
+            button_text="Elegir direccion",
+            sections=sections,
+        )
+        if success:
+            logger.info("direccion_lista_enviada phone=%s count=%s", numero_telefono, len(direcciones))
+        return success
+
+    @staticmethod
+    def _send_eliminar_direccion_list(numero_telefono: str, direcciones: list) -> bool:
+        from services.meta_whatsapp_service import meta_whatsapp_service
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        rows = []
+        for idx, item in enumerate(direcciones):
+            label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
+            title = ChatbotRules._truncate_text(label, 24)
+            rows.append({"id": f"dir_del_{idx}", "title": title})
+
+        sections = [{"title": "Eliminar direccion", "rows": rows}]
+        success = meta_whatsapp_service.send_interactive_list(
+            numero_telefono,
+            body_text="Para guardar una nueva direccion, elimina una existente.",
+            button_text="Eliminar direccion",
+            sections=sections,
+        )
+        if success:
+            logger.info("direccion_eliminar_lista_enviada phone=%s", numero_telefono)
+        return success
+
+    @staticmethod
+    def _maybe_prompt_direccion_guardada(numero_telefono: str, contexto: str) -> Optional[str]:
+        if numero_telefono.startswith("messenger:"):
+            return None
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        if conversacion.datos_temporales.get("_direccion_seleccion_contexto"):
+            return ""
+        direcciones = clients_sheet_service.get_direcciones(numero_telefono)
+        if not direcciones:
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
+            return None
+        conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", direcciones)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", contexto)
+
+        success = False
+        if len(direcciones) <= 2:
+            success = ChatbotRules._send_direccion_buttons(numero_telefono, direcciones)
+        else:
+            success = ChatbotRules._send_direccion_list(numero_telefono, direcciones)
+
+        if success:
+            return ""
+        return ChatbotRules._build_direccion_fallback_text(direcciones)
+
+    @staticmethod
+    def _apply_direccion_seleccionada(numero_telefono: str, direccion_item: dict, contexto: str) -> str:
+        direccion = direccion_item.get("direccion", "")
+        piso = direccion_item.get("piso_depto", "")
+        import logging
+        logger = logging.getLogger(__name__)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
+
+        if contexto == "expensas":
+            conversation_manager.set_datos_temporales(numero_telefono, "direccion", direccion)
+            conversation_manager.set_datos_temporales(numero_telefono, "piso_depto", piso)
+        else:
+            direccion_servicio = direccion if not piso else f"{direccion} {piso}".strip()
+            conversation_manager.set_datos_temporales(numero_telefono, "direccion_servicio", direccion_servicio)
+
+        try:
+            clients_sheet_service.update_last_used(numero_telefono, direccion, piso)
+        except Exception:
+            pass
+        logger.info("direccion_seleccionada phone=%s", numero_telefono)
+
+        siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
+        if not siguiente:
+            conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+            return ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
+        return ChatbotRules._get_pregunta_campo_secuencial(siguiente, conversation_manager.get_conversacion(numero_telefono).tipo_consulta)
+
+    @staticmethod
+    def _prompt_eliminar_direccion(numero_telefono: str, direcciones: list, contexto: str) -> Optional[str]:
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", contexto)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", True)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", direcciones)
+
+        success = ChatbotRules._send_eliminar_direccion_list(numero_telefono, direcciones)
+        if success:
+            return ""
+        return ChatbotRules._build_eliminar_fallback_text(direcciones)
+
+    @staticmethod
+    def _procesar_seleccion_direccion_text(numero_telefono: str, mensaje: str) -> Optional[str]:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        contexto = conversacion.datos_temporales.get("_direccion_seleccion_contexto")
+        if not contexto:
+            return None
+        direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
+        if not mensaje.strip().isdigit():
+            return ChatbotRules._build_direccion_fallback_text(direcciones)
+        idx = int(mensaje.strip()) - 1
+        if idx == len(direcciones):
+            return ChatbotRules._procesar_direccion_otro(numero_telefono, contexto, direcciones)
+        if idx < 0 or idx >= len(direcciones):
+            return ChatbotRules._build_direccion_fallback_text(direcciones)
+        return ChatbotRules._apply_direccion_seleccionada(numero_telefono, direcciones[idx], contexto)
+
+    @staticmethod
+    def _procesar_eliminar_direccion_text(numero_telefono: str, mensaje: str) -> Optional[str]:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        if not conversacion.datos_temporales.get("_direccion_eliminar_activa"):
+            return None
+        direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
+        if not mensaje.strip().isdigit():
+            return ChatbotRules._build_eliminar_fallback_text(direcciones)
+        idx = int(mensaje.strip()) - 1
+        if idx < 0 or idx >= len(direcciones):
+            return ChatbotRules._build_eliminar_fallback_text(direcciones)
+        contexto = conversacion.datos_temporales.get("_direccion_eliminar_contexto", "expensas")
+        removed = clients_sheet_service.remove_direccion(numero_telefono, idx)
+        if not removed:
+            return "No pude eliminar esa direccion. Por favor intenta de nuevo."
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("direccion_eliminada phone=%s", numero_telefono)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
+        return ChatbotRules._get_pregunta_campo_secuencial(
+            "direccion" if contexto == "expensas" else "direccion_servicio",
+            conversacion.tipo_consulta,
+        )
+
+    @staticmethod
+    def _procesar_direccion_otro(numero_telefono: str, contexto: str, direcciones: list) -> str:
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+        if len(direcciones) >= ChatbotRules.MAX_DIRECCIONES_GUARDADAS:
+            prompt = ChatbotRules._prompt_eliminar_direccion(numero_telefono, direcciones, contexto)
+            return prompt or ""
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
+        return ChatbotRules._get_pregunta_campo_secuencial(
+            "direccion" if contexto == "expensas" else "direccion_servicio",
+            conversation_manager.get_conversacion(numero_telefono).tipo_consulta,
+        )
+
+    @staticmethod
+    def procesar_direccion_interactive(numero_telefono: str, button_id: str) -> Optional[str]:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
+        contexto = conversacion.datos_temporales.get("_direccion_seleccion_contexto")
+
+        if button_id.startswith("dir_sel_"):
+            try:
+                idx = int(button_id.replace("dir_sel_", ""))
+            except ValueError:
+                return None
+            if not direcciones:
+                direcciones = clients_sheet_service.get_direcciones(numero_telefono)
+            if idx < 0 or idx >= len(direcciones):
+                return ChatbotRules._build_direccion_fallback_text(direcciones)
+            contexto = contexto or "expensas"
+            return ChatbotRules._apply_direccion_seleccionada(numero_telefono, direcciones[idx], contexto)
+
+        if button_id == "dir_otro":
+            if not direcciones:
+                direcciones = clients_sheet_service.get_direcciones(numero_telefono)
+            contexto = contexto or "expensas"
+            return ChatbotRules._procesar_direccion_otro(numero_telefono, contexto, direcciones)
+
+        if button_id.startswith("dir_del_"):
+            try:
+                idx = int(button_id.replace("dir_del_", ""))
+            except ValueError:
+                return None
+            if not direcciones:
+                direcciones = clients_sheet_service.get_direcciones(numero_telefono)
+            if idx < 0 or idx >= len(direcciones):
+                return ChatbotRules._build_eliminar_fallback_text(direcciones)
+            contexto = conversacion.datos_temporales.get("_direccion_eliminar_contexto", "expensas")
+            removed = clients_sheet_service.remove_direccion(numero_telefono, idx)
+            if not removed:
+                return "No pude eliminar esa direccion. Por favor intenta de nuevo."
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("direccion_eliminada phone=%s", numero_telefono)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
+            return ChatbotRules._get_pregunta_campo_secuencial(
+                "direccion" if contexto == "expensas" else "direccion_servicio",
+                conversacion.tipo_consulta,
+            )
+
+        return None
     
     @staticmethod
     def _get_mensaje_confirmacion_campo(campo: str, valor: str) -> str:
@@ -790,6 +1248,7 @@ Responde con el número de la opción que necesitas 📱"""
         body_text = ChatbotRules._get_pregunta_campo_secuencial("fecha_pago")
         buttons = [
             {"id": "fecha_hoy", "title": "Hoy"},
+            {"id": "fecha_ayer", "title": "Ayer"},
         ]
 
         success = meta_whatsapp_service.send_interactive_buttons(
@@ -827,7 +1286,16 @@ Responde con el número de la opción que necesitas 📱"""
 
         valor = mensaje.strip()
 
-        if campo_actual == 'tipo_servicio':
+        if campo_actual == 'fecha_pago':
+            fecha_rel = _parse_fecha_hoy_ayer(valor)
+            if fecha_rel:
+                conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, fecha_rel)
+            else:
+                if not ChatbotRules._validar_campo_individual(campo_actual, valor):
+                    error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
+                    return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
+                conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
+        elif campo_actual == 'tipo_servicio':
             matched = ChatbotRules._match_service_option(valor)
             if not matched:
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
@@ -870,11 +1338,33 @@ Responde con el número de la opción que necesitas 📱"""
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
 
+        if campo_actual == "piso_depto" and conversacion.datos_temporales.get("_direccion_nueva"):
+            direccion = conversacion.datos_temporales.get("direccion", "")
+            conversation_manager.set_datos_temporales(
+                numero_telefono,
+                "_direccion_para_guardar",
+                {"direccion": direccion, "piso_depto": valor},
+            )
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
+
+        if campo_actual == "direccion_servicio" and conversacion.datos_temporales.get("_direccion_nueva"):
+            base, piso = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+            conversation_manager.set_datos_temporales(
+                numero_telefono,
+                "_direccion_para_guardar",
+                {"direccion": base or valor, "piso_depto": piso or ""},
+            )
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
+
         if conversation_manager.es_ultimo_campo(numero_telefono, campo_actual):
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
             return ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
 
         siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+        if campo_actual == "tipo_servicio":
+            caption_pendiente = conversacion.datos_temporales.pop("adjuntos_pendientes_caption", "")
+            if caption_pendiente:
+                return ChatbotRules._procesar_campo_secuencial(numero_telefono, caption_pendiente)
         if (
             campo_actual == "direccion"
             and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
@@ -886,6 +1376,14 @@ Responde con el número de la opción que necesitas 📱"""
             )
             conversation_manager.set_datos_temporales(numero_telefono, "direccion", valor)
             siguiente_campo = "piso_depto"
+        if siguiente_campo == "direccion" and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
+            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "expensas")
+            if direccion_prompt is not None:
+                return direccion_prompt
+        if siguiente_campo == "direccion_servicio" and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "servicio")
+            if direccion_prompt is not None:
+                return direccion_prompt
         if (
             siguiente_campo == 'piso_depto'
             and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
@@ -917,8 +1415,13 @@ Responde con el número de la opción que necesitas 📱"""
         campo_actual = campos_faltantes[indice_actual]
         
         # Validar y guardar la respuesta
-        if ChatbotRules._validar_campo_individual(campo_actual, mensaje.strip()):
-            conversation_manager.set_datos_temporales(numero_telefono, campo_actual, mensaje.strip())
+        valor = mensaje.strip()
+        if campo_actual == "fecha_pago":
+            fecha_rel = _parse_fecha_hoy_ayer(valor)
+            if fecha_rel:
+                valor = fecha_rel
+        if ChatbotRules._validar_campo_individual(campo_actual, valor):
+            conversation_manager.set_datos_temporales(numero_telefono, campo_actual, valor)
             
             # Avanzar al siguiente campo
             siguiente_indice = indice_actual + 1
@@ -1270,6 +1773,10 @@ Responde con el número del campo que deseas modificar."""
             return "🤖 Hubo un error. Escribe 'hola' para comenzar de nuevo."
         
         valor = mensaje.strip()
+        if campo == 'fecha_pago':
+            fecha_rel = _parse_fecha_hoy_ayer(valor)
+            if fecha_rel:
+                valor = fecha_rel
         if campo == 'tipo_servicio':
             matched = ChatbotRules._match_service_option(valor)
             if not matched:
@@ -1285,6 +1792,23 @@ Responde con el número del campo que deseas modificar."""
             return f"❌ {error_msg}\n\nPor favor envía un valor válido para: {ChatbotRules._get_pregunta_campo_individual(campo)}"
 
         conversation_manager.set_datos_temporales(numero_telefono, campo, valor)
+
+        if conversacion.datos_temporales.get("_direccion_para_guardar") is not None:
+            if campo in {"direccion", "piso_depto"}:
+                direccion = conversacion.datos_temporales.get("direccion", "")
+                piso = conversacion.datos_temporales.get("piso_depto", "")
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_direccion_para_guardar",
+                    {"direccion": direccion, "piso_depto": piso},
+                )
+            elif campo == "direccion_servicio":
+                base, piso = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_direccion_para_guardar",
+                    {"direccion": base or valor, "piso_depto": piso or ""},
+                )
 
         valido, error = conversation_manager.validar_y_guardar_datos(numero_telefono)
         if not valido:
@@ -1377,6 +1901,18 @@ Responde con el número del campo que deseas modificar."""
             conversation_manager.clear_datos_temporales(numero_telefono)
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.ESPERANDO_OPCION)
             return "↩️ *Volviendo al menú principal...*\n\n" + ChatbotRules.get_mensaje_inicial_personalizado(conversacion.nombre_usuario)
+
+        media_response = ChatbotRules._procesar_confirmacion_media(numero_telefono, mensaje)
+        if media_response is not None:
+            return media_response
+
+        direccion_eliminar = ChatbotRules._procesar_eliminar_direccion_text(numero_telefono, mensaje)
+        if direccion_eliminar is not None:
+            return direccion_eliminar
+
+        direccion_seleccion = ChatbotRules._procesar_seleccion_direccion_text(numero_telefono, mensaje)
+        if direccion_seleccion is not None:
+            return direccion_seleccion
         
         if conversacion.estado == EstadoConversacion.INICIO:
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.ESPERANDO_OPCION)

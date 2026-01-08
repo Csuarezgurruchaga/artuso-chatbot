@@ -76,7 +76,11 @@ class ExpensasSheetService:
 
         piso_depto_norm = self._normalize_piso_depto(datos.get("piso_depto", ""))
 
-        comprobante_url = datos.get("comprobante", "")
+        comprobante_raw = datos.get("comprobante", "")
+        if isinstance(comprobante_raw, list):
+            comprobante_value = "\n".join([url for url in comprobante_raw if url])
+        else:
+            comprobante_value = comprobante_raw or ""
         row = [
             "ws",  # TIPO AVISO
             fecha_aviso,  # FECHA AVISO
@@ -86,16 +90,14 @@ class ExpensasSheetService:
             piso_depto_norm,  # DPTO
             "",  # UF
             comentario,  # COMENTARIO
-            "",  # COMPROBANTE
+            comprobante_value,  # COMPROBANTE
         ]
 
         try:
             gc = self._get_client()
             sh = gc.open_by_key(EXPENSAS_SPREADSHEET_ID)
             ws = sh.worksheet(EXPENSAS_SHEET_NAME)
-            resp = ws.append_row(row, value_input_option="RAW")
-            if comprobante_url:
-                self._update_comprobante_link(ws, resp, len(row), comprobante_url)
+            ws.append_row(row, value_input_option="RAW")
             logger.info("Expensas append OK para %s", conversacion.numero_telefono)
             return True
         except Exception as e:

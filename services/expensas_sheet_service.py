@@ -19,7 +19,10 @@ from config.company_profiles import get_active_company_profile
 
 logger = logging.getLogger(__name__)
 
-EXPENSAS_SPREADSHEET_ID = "1WTzQlPRp63HDyUfsCMI5HNFaCUn82SYeDksZGMkKXi4"
+EXPENSAS_SPREADSHEET_ID = os.getenv(
+    "EXPENSAS_SPREADSHEET_ID",
+    "1LYtHD-a9Ii8QaqLApr8P-7xKKncM-2h_C3i7D10LhSg",
+)
 EXPENSAS_SHEET_NAME = "chatbot-expensas"
 EXPENSAS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",

@@ -846,8 +846,9 @@ Responde con el número de la opción que necesitas 📱"""
     
     @staticmethod
     def _get_pregunta_campo_individual(campo: str) -> str:
+        fecha_ejemplo = _fecha_argentina(0)
         preguntas = {
-            'fecha_pago': "📅 ¿En qué fecha realizaste el pago de las expensas?\n(Por ejemplo: 12/09/2025)",
+            'fecha_pago': f"📅 ¿En qué fecha realizaste el pago de las expensas?\n(Por ejemplo: {fecha_ejemplo})",
             'monto': "💰 ¿Cuál fue el monto que abonaste?\n(Podés escribir solo el número, por ejemplo: 45800)",
             'direccion': "🏠 ¿A qué dirección corresponde el pago?\n(Ejemplo: Av. Corrientes 1234)",
             'piso_depto': "🚪 ¿Cuál es el piso y departamento?\n(Ejemplo: 3° B)\n(Puede ser piso, departamento o número de cochera)",

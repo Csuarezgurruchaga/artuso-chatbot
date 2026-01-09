@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 from chatbot.states import conversation_manager
 from services.meta_whatsapp_service import meta_whatsapp_service
+from services.phone_display import format_phone_for_agent
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,8 @@ class AgentCommandService:
 
     def _build_done_agent_message(self, nombre_cliente: str, telefono: str, with_survey: bool) -> str:
         queue_size = conversation_manager.get_queue_size()
-        base = f"✅ Cierre enviado a {nombre_cliente} ({telefono})."
+        telefono_display = format_phone_for_agent(telefono)
+        base = f"✅ Cierre enviado a {nombre_cliente} ({telefono_display})."
         if with_survey:
             base += " ⏳ Encuesta en curso (auto-cierre 15 min)."
         if queue_size > 1:
@@ -355,10 +357,11 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
                     mins = minutos % 60
                     tiempo_activo = f"{horas}h {mins}min"
 
+            telefono_display = format_phone_for_agent(active_phone)
             message = f"""🟢 *CONVERSACIÓN ACTIVA*
 
 *Cliente:* {nombre}
-*Teléfono:* {active_phone}
+*Teléfono:* {telefono_display}
 *Tiempo activo:* {tiempo_activo or 'N/A'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━
@@ -396,7 +399,8 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
                 
                 # Verificar que esté en handoff
                 if not (conversacion.atendido_por_humano or conversacion.estado.value == 'atendido_por_humano'):
-                    return f"⚠️ El número {numero_telefono} no está en handoff actualmente."
+                    telefono_display = format_phone_for_agent(numero_telefono)
+                    return f"⚠️ El número {telefono_display} no está en handoff actualmente."
             else:
                 # Usar conversación activa
                 active_phone = conversation_manager.get_active_handoff()

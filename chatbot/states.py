@@ -3,6 +3,7 @@ import re
 from typing import Dict, Optional, List, Any
 from .models import ConversacionData, EstadoConversacion, TipoConsulta
 from services.metrics_service import metrics_service
+from services.phone_display import format_phone_for_agent
 from datetime import datetime, timedelta
 
 POST_FINALIZADO_WINDOW_SECONDS = int(os.getenv("POST_FINALIZADO_WINDOW_SECONDS", "120"))
@@ -363,17 +364,18 @@ class ConversationManager:
                     tiempo_ultimo_mensaje = f"{minutos} min"
 
             nombre = conversacion.nombre_usuario or "Sin nombre"
+            numero_display = format_phone_for_agent(numero)
 
             if is_active:
                 lines.append(f"🟢 *[ACTIVO]* {nombre}")
-                lines.append(f"   📞 {numero}")
+                lines.append(f"   📞 {numero_display}")
                 if tiempo_desde_inicio:
                     lines.append(f"   ⏱️ Iniciado hace {tiempo_desde_inicio}")
                 if tiempo_ultimo_mensaje:
                     lines.append(f"   💬 Último mensaje hace {tiempo_ultimo_mensaje}")
             else:
                 lines.append(f"\n⏳ *[#{i+1}]* {nombre}")
-                lines.append(f"   📞 {numero}")
+                lines.append(f"   📞 {numero_display}")
                 if tiempo_desde_inicio:
                     lines.append(f"   ⏱️ Esperando hace {tiempo_desde_inicio}")
 

@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 
 from .meta_whatsapp_service import meta_whatsapp_service
+from .phone_display import format_phone_for_agent
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +95,9 @@ class WhatsAppHandoffService:
             bool: True si la notificación se envió exitosamente
         """
         try:
+            numero_display = format_phone_for_agent(client_phone)
             agent_message = f"💬 *Nuevo mensaje del cliente*\n\n"
-            agent_message += f"Cliente: {client_name or 'Sin nombre'} ({client_phone})\n"
+            agent_message += f"Cliente: {client_name or 'Sin nombre'} ({numero_display})\n"
             agent_message += f"Mensaje: {message}"
             
             success = meta_whatsapp_service.send_text_message(
@@ -155,8 +157,9 @@ class WhatsAppHandoffService:
             bool: True si la notificación se envió exitosamente
         """
         try:
+            numero_display = format_phone_for_agent(client_phone)
             agent_message = f"✅ *Handoff resuelto*\n\n"
-            agent_message += f"Cliente: {client_name or 'Sin nombre'} ({client_phone})\n"
+            agent_message += f"Cliente: {client_name or 'Sin nombre'} ({numero_display})\n"
             agent_message += f"La conversación ha sido finalizada exitosamente."
             
             success = meta_whatsapp_service.send_text_message(
@@ -180,8 +183,9 @@ class WhatsAppHandoffService:
         """
         Formatea el mensaje de notificación de handoff para el agente.
         """
+        numero_display = format_phone_for_agent(client_phone)
         message = f"🔄 *Solicitud de handoff*\n\n"
-        message += f"Cliente: {client_name or 'Sin nombre'} ({client_phone})\n\n"
+        message += f"Cliente: {client_name or 'Sin nombre'} ({numero_display})\n\n"
         message += f"📝 *Mensaje que disparó el handoff:*\n{handoff_message}\n\n"
         message += f"ℹ️ *Instrucciones:*\n"
         message += f"• Responde en este mismo chat y enviaremos tu mensaje al cliente automáticamente.\n"

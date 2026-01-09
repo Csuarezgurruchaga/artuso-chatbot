@@ -21,6 +21,7 @@ from services.gcs_storage_service import gcs_storage_service
 from services.clients_sheet_service import clients_sheet_service
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
+from services.phone_display import format_phone_for_agent
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -140,11 +141,12 @@ def _notify_handoff_activated(conversacion: ConversacionData, position: int, tot
     if len(mensaje_contexto) > 100:
         mensaje_contexto = mensaje_contexto[:100] + "..."
 
+    numero_display = format_phone_for_agent(conversacion.numero_telefono)
     template_sent = meta_whatsapp_service.send_template_message(
         agent_number,
         HANDOFF_TEMPLATE_NAME,
         HANDOFF_TEMPLATE_LANG,
-        [nombre, conversacion.numero_telefono, mensaje_contexto],
+        [nombre, numero_display, mensaje_contexto],
     )
 
     if template_sent:
@@ -839,9 +841,10 @@ async def webhook_whatsapp_receive(request: Request):
                         # Por ahora, enviar notificación simple
                         agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
                         if agent_number:
+                            numero_display = format_phone_for_agent(numero_telefono)
                             notification = f"""🔄 *Solicitud de handoff*
 
-Cliente: {profile_name or 'Sin nombre'} ({numero_telefono})
+Cliente: {profile_name or 'Sin nombre'} ({numero_display})
 
 📝 *Mensaje que disparó el handoff:*
 {conversacion_actual.mensaje_handoff_contexto or mensaje_usuario}
@@ -1012,10 +1015,12 @@ def _format_handoff_activated_notification(conversacion: ConversacionData, posit
     if len(mensaje_contexto) > 100:
         mensaje_contexto = mensaje_contexto[:100] + "..."
 
+    numero_display = format_phone_for_agent(conversacion.numero_telefono)
+
     return f"""💬 *HANDOFF ACTIVADO* [{position}/{total}]
 
 *Cliente:* {nombre}
-*Tel:* {conversacion.numero_telefono}
+*Tel:* {numero_display}
 *Mensaje inicial:* "{mensaje_contexto}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1050,10 +1055,12 @@ def _format_handoff_queued_notification(conversacion: ConversacionData, position
 
     nombre_activo = active_conv.nombre_usuario or "Cliente actual"
 
+    numero_display = format_phone_for_agent(conversacion.numero_telefono)
+
     return f"""💬 *NUEVO HANDOFF EN COLA* [#{position}/{total}]
 
 *Cliente:* {nombre}
-*Tel:* {conversacion.numero_telefono}
+*Tel:* {numero_display}
 *Mensaje:* "{mensaje_contexto}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

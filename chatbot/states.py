@@ -1,5 +1,6 @@
 import os
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Optional, List, Any
 from .models import ConversacionData, EstadoConversacion, TipoConsulta
 from services.metrics_service import metrics_service
@@ -39,6 +40,87 @@ class ConversationManager:
         conversacion = self.get_conversacion(numero_telefono)
         conversacion.datos_temporales[key] = value
     
+    @staticmethod
+    def _normalizar_fecha_pago(texto: str) -> Optional[str]:
+        if not texto:
+            return None
+        match = re.match(r'^(\d{2})[./-](\d{2})[./-](\d{4})$', texto.strip())
+        if not match:
+            return None
+        return f"{match.group(1)}/{match.group(2)}/{match.group(3)}"
+
+    @staticmethod
+    def _normalizar_monto(texto: str) -> Optional[str]:
+        if not texto:
+            return None
+        raw = texto.strip().replace(" ", "")
+        if not raw or not re.match(r'^[0-9.,]+$', raw):
+            return None
+
+        last_dot = raw.rfind(".")
+        last_comma = raw.rfind(",")
+        decimal_sep = None
+        decimal_len = 0
+
+        if last_dot != -1 and last_comma != -1:
+            last_idx = last_dot if last_dot > last_comma else last_comma
+            decimal_sep = "." if last_dot > last_comma else ","
+            decimal_len = len(re.sub(r"\D", "", raw[last_idx + 1 :]))
+        else:
+            last_idx = None
+            if last_dot != -1:
+                decimal_sep = "."
+                last_idx = last_dot
+            elif last_comma != -1:
+                decimal_sep = ","
+                last_idx = last_comma
+            if decimal_sep and last_idx is not None:
+                decimal_len = len(re.sub(r"\D", "", raw[last_idx + 1 :]))
+                sep_count = raw.count(decimal_sep)
+                if (sep_count > 1 and decimal_len > 2) or (
+                    sep_count == 1 and decimal_len == 3 and len(raw) > 4
+                ):
+                    decimal_sep = None
+                    decimal_len = 0
+
+        digits_only = re.sub(r"\D", "", raw)
+        if not digits_only:
+            return None
+
+        if decimal_sep and decimal_len > 0:
+            integer_part = digits_only[:-decimal_len] or "0"
+            decimal_part = digits_only[-decimal_len:]
+            normalized = f"{integer_part}.{decimal_part}"
+        elif decimal_sep and decimal_len == 0:
+            return None
+        else:
+            normalized = digits_only
+
+        try:
+            value = Decimal(normalized)
+        except InvalidOperation:
+            return None
+
+        if value <= 0 or value > Decimal("2000000"):
+            return None
+
+        return normalized
+
+    @staticmethod
+    def _direccion_valida(valor: str) -> bool:
+        if not valor:
+            return False
+        if not any(char.isalpha() for char in valor):
+            return False
+        if not any(char.isdigit() for char in valor):
+            return False
+        allowed_symbols = {".", ",", "#", "/", "-", "º", "°"}
+        for char in valor:
+            if char.isalpha() or char.isdigit() or char.isspace() or char in allowed_symbols:
+                continue
+            return False
+        return True
+
     def get_datos_temporales(self, numero_telefono: str, key: str) -> Optional[str]:
         conversacion = self.get_conversacion(numero_telefono)
         return conversacion.datos_temporales.get(key)
@@ -54,12 +136,20 @@ class ConversationManager:
             direccion = (datos_temp.get('direccion') or '').strip()
             piso_depto = (datos_temp.get('piso_depto') or '').strip()
 
-            if not re.match(r'^\d{2}/\d{2}/\d{4}$', fecha_pago):
+            fecha_norm = self._normalizar_fecha_pago(fecha_pago)
+            if not fecha_norm:
                 error_msgs.append("📅 Fecha inválida. Usá el formato dd/mm/yyyy (ej: 12/09/2025).")
-            if not re.match(r'^\d+(?:[.,]\d+)?$', monto):
-                error_msgs.append("💰 Monto inválido. Escribí solo números (ej: 45800).")
-            if len(direccion) < 5:
-                error_msgs.append("🏠 Dirección inválida. Debe tener al menos 5 caracteres.")
+            else:
+                datos_temp['fecha_pago'] = fecha_norm
+
+            monto_norm = self._normalizar_monto(monto)
+            if not monto_norm:
+                error_msgs.append("💰 Monto inválido. Debe ser mayor a 0 y hasta 2000000.")
+            else:
+                datos_temp['monto'] = monto_norm
+
+            if not self._direccion_valida(direccion):
+                error_msgs.append("🏠 Dirección inválida. Debe tener letras y números. Solo se permiten . , # / - º °")
             if len(piso_depto) < 1:
                 error_msgs.append("🚪 Piso/departamento inválido. Indica al menos un valor.")
 
@@ -70,8 +160,8 @@ class ConversationManager:
 
             if not tipo_servicio:
                 error_msgs.append("🔧 Falta seleccionar el tipo de servicio.")
-            if len(direccion) < 5:
-                error_msgs.append("📍 Dirección inválida. Debe tener al menos 5 caracteres.")
+            if not self._direccion_valida(direccion):
+                error_msgs.append("📍 Dirección inválida. Debe tener letras y números. Solo se permiten . , # / - º °")
             if len(detalle) < 5:
                 error_msgs.append("📝 Contanos un poco más sobre el problema (mínimo 5 caracteres).")
 

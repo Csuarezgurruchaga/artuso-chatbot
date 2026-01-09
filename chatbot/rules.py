@@ -7,9 +7,11 @@ from .states import conversation_manager
 from config.company_profiles import get_active_company_profile
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from decimal import Decimal, InvalidOperation
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
 from services.clients_sheet_service import clients_sheet_service
+from services.rate_limit_service import rate_limit_service
 
 POST_FINALIZADO_WINDOW_SECONDS = int(os.getenv("POST_FINALIZADO_WINDOW_SECONDS", "120"))
 POST_FINALIZADO_ACK_MESSAGE = os.getenv(
@@ -17,6 +19,10 @@ POST_FINALIZADO_ACK_MESSAGE = os.getenv(
     "¡Gracias por tu mensaje! Ya registramos tu solicitud. Si necesitás otra cosa, escribime \"hola\" para comenzar de nuevo. 🤖",
 )
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+RATE_LIMIT_MESSAGE = (
+    "Por hoy ya alcanzaste el máximo de 20 interacciones 😊 "
+    "Mañana podés volver a usar el servicio sin problema!"
+)
 
 
 def _fecha_argentina(days_delta: int = 0) -> str:
@@ -301,6 +307,19 @@ Responde con el número de la opción que necesitas 📱"""
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         adjuntos_pendientes = conversacion.datos_temporales.get("adjuntos_pendientes") or []
         caption_pendiente = conversacion.datos_temporales.get("adjuntos_pendientes_caption", "")
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        allowed, count, date_key = rate_limit_service.check_and_increment(numero_telefono)
+        if not allowed:
+            logger.info(
+                "rate_limit_block phone=%s date=%s count=%s",
+                numero_telefono,
+                date_key,
+                count,
+            )
+            return RATE_LIMIT_MESSAGE
 
         conversation_manager.set_tipo_consulta(numero_telefono, tipo_consulta)
         conversation_manager.clear_datos_temporales(numero_telefono)
@@ -1331,13 +1350,23 @@ Responde con el número de la opción que necesitas 📱"""
             if fecha_rel:
                 conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, fecha_rel)
             else:
-                if not ChatbotRules._validar_campo_individual(campo_actual, valor):
+                fecha_norm = ChatbotRules._normalizar_fecha_pago(valor)
+                if not fecha_norm:
+                    ChatbotRules._log_validacion_fallida(campo_actual)
                     error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                     return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
-                conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
+                conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, fecha_norm)
+        elif campo_actual == 'monto':
+            monto_norm = ChatbotRules._normalizar_monto(valor)
+            if not monto_norm:
+                ChatbotRules._log_validacion_fallida(campo_actual)
+                error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
+                return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
+            conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, monto_norm)
         elif campo_actual == 'tipo_servicio':
             matched = ChatbotRules._match_service_option(valor)
             if not matched:
+                ChatbotRules._log_validacion_fallida(campo_actual)
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, matched)
@@ -1365,6 +1394,7 @@ Responde con el número de la opción que necesitas 📱"""
                     None,
                 )
             if not ChatbotRules._validar_campo_individual(campo_actual, valor):
+                ChatbotRules._log_validacion_fallida(campo_actual)
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
@@ -1374,6 +1404,7 @@ Responde con el número de la opción que necesitas 📱"""
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, "")
         else:
             if not ChatbotRules._validar_campo_individual(campo_actual, valor):
+                ChatbotRules._log_validacion_fallida(campo_actual)
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
@@ -1460,6 +1491,14 @@ Responde con el número de la opción que necesitas 📱"""
             fecha_rel = _parse_fecha_hoy_ayer(valor)
             if fecha_rel:
                 valor = fecha_rel
+            else:
+                fecha_norm = ChatbotRules._normalizar_fecha_pago(valor)
+                if fecha_norm:
+                    valor = fecha_norm
+        if campo_actual == "monto":
+            monto_norm = ChatbotRules._normalizar_monto(valor)
+            if monto_norm:
+                valor = monto_norm
         if ChatbotRules._validar_campo_individual(campo_actual, valor):
             conversation_manager.set_datos_temporales(numero_telefono, campo_actual, valor)
             
@@ -1486,17 +1525,106 @@ Responde con el número de la opción que necesitas 📱"""
                 return f"✅ Perfecto!\n\n{ChatbotRules._get_pregunta_campo_individual(siguiente_campo)}"
         else:
             # Campo inválido, pedir de nuevo
+            ChatbotRules._log_validacion_fallida(campo_actual)
             error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
             return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo_actual)}"
     
     @staticmethod
+    def _normalizar_fecha_pago(texto: str) -> Optional[str]:
+        if not texto:
+            return None
+        match = re.match(r'^(\d{2})[./-](\d{2})[./-](\d{4})$', texto.strip())
+        if not match:
+            return None
+        return f"{match.group(1)}/{match.group(2)}/{match.group(3)}"
+
+    @staticmethod
+    def _normalizar_monto(texto: str) -> Optional[str]:
+        if not texto:
+            return None
+        raw = texto.strip().replace(" ", "")
+        if not raw or not re.match(r'^[0-9.,]+$', raw):
+            return None
+
+        last_dot = raw.rfind(".")
+        last_comma = raw.rfind(",")
+        decimal_sep = None
+        decimal_len = 0
+
+        if last_dot != -1 and last_comma != -1:
+            last_idx = last_dot if last_dot > last_comma else last_comma
+            decimal_sep = "." if last_dot > last_comma else ","
+            decimal_len = len(re.sub(r"\D", "", raw[last_idx + 1 :]))
+        else:
+            last_idx = None
+            if last_dot != -1:
+                decimal_sep = "."
+                last_idx = last_dot
+            elif last_comma != -1:
+                decimal_sep = ","
+                last_idx = last_comma
+            if decimal_sep and last_idx is not None:
+                decimal_len = len(re.sub(r"\D", "", raw[last_idx + 1 :]))
+                sep_count = raw.count(decimal_sep)
+                if (sep_count > 1 and decimal_len > 2) or (
+                    sep_count == 1 and decimal_len == 3 and len(raw) > 4
+                ):
+                    decimal_sep = None
+                    decimal_len = 0
+
+        digits_only = re.sub(r"\D", "", raw)
+        if not digits_only:
+            return None
+
+        if decimal_sep and decimal_len > 0:
+            integer_part = digits_only[:-decimal_len] or "0"
+            decimal_part = digits_only[-decimal_len:]
+            normalized = f"{integer_part}.{decimal_part}"
+        elif decimal_sep and decimal_len == 0:
+            return None
+        else:
+            normalized = digits_only
+
+        try:
+            value = Decimal(normalized)
+        except InvalidOperation:
+            return None
+
+        if value <= 0 or value > Decimal("2000000"):
+            return None
+
+        return normalized
+
+    @staticmethod
+    def _direccion_valida(valor: str) -> bool:
+        if not valor:
+            return False
+        if not any(char.isalpha() for char in valor):
+            return False
+        if not any(char.isdigit() for char in valor):
+            return False
+        allowed_symbols = {".", ",", "#", "/", "-", "º", "°"}
+        for char in valor:
+            if char.isalpha() or char.isdigit() or char.isspace() or char in allowed_symbols:
+                continue
+            return False
+        return True
+
+    @staticmethod
+    def _log_validacion_fallida(campo: str) -> None:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info("validation_failed field=%s", campo)
+
+    @staticmethod
     def _validar_campo_individual(campo: str, valor: str) -> bool:
         if campo == 'fecha_pago':
-            return bool(re.match(r'^\d{2}/\d{2}/\d{4}$', valor))
+            return ChatbotRules._normalizar_fecha_pago(valor) is not None
         if campo == 'monto':
-            return bool(re.match(r'^\d+(?:[.,]\d+)?$', valor))
+            return ChatbotRules._normalizar_monto(valor) is not None
         if campo == 'direccion':
-            return len(valor) >= 5
+            return ChatbotRules._direccion_valida(valor)
         if campo == 'piso_depto':
             return len(valor) >= 1
         if campo == 'comentario':
@@ -1504,7 +1632,7 @@ Responde con el número de la opción que necesitas 📱"""
         if campo == 'tipo_servicio':
             return ChatbotRules._match_service_option(valor) is not None
         if campo == 'direccion_servicio':
-            return len(valor) >= 5
+            return ChatbotRules._direccion_valida(valor)
         if campo == 'detalle_servicio':
             return len(valor) >= 5
         return False
@@ -1513,12 +1641,12 @@ Responde con el número de la opción que necesitas 📱"""
     def _get_error_campo_individual(campo: str) -> str:
         errores = {
             'fecha_pago': "Usá el formato dd/mm/yyyy (ej: 12/09/2025).",
-            'monto': "Escribí solo números (ej: 45800).",
-            'direccion': "La dirección debe tener al menos 5 caracteres.",
+            'monto': "Ingresá un monto válido mayor a 0 y hasta 2000000.",
+            'direccion': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
             'piso_depto': "Indica piso/departamento o número de cochera.",
             'comprobante': "Envía una imagen o PDF del comprobante, o escribe “Saltar”.",
             'tipo_servicio': "Seleccioná: Destapación de caños, Fumigación u Otro servicio.",
-            'direccion_servicio': "La ubicación debe tener al menos 5 caracteres.",
+            'direccion_servicio': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
             'detalle_servicio': "Contanos un poco más sobre el problema (mínimo 5 caracteres).",
         }
         return errores.get(campo, "El formato no es válido.")
@@ -1817,9 +1945,18 @@ Responde con el número del campo que deseas modificar."""
             fecha_rel = _parse_fecha_hoy_ayer(valor)
             if fecha_rel:
                 valor = fecha_rel
+            else:
+                fecha_norm = ChatbotRules._normalizar_fecha_pago(valor)
+                if fecha_norm:
+                    valor = fecha_norm
+        if campo == 'monto':
+            monto_norm = ChatbotRules._normalizar_monto(valor)
+            if monto_norm:
+                valor = monto_norm
         if campo == 'tipo_servicio':
             matched = ChatbotRules._match_service_option(valor)
             if not matched:
+                ChatbotRules._log_validacion_fallida(campo)
                 error_msg = ChatbotRules._get_error_campo_individual(campo)
                 return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo)}"
             valor = matched
@@ -1828,6 +1965,7 @@ Responde con el número del campo que deseas modificar."""
         elif campo == 'comprobante' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             valor = ""
         elif not ChatbotRules._validar_campo_individual(campo, valor):
+            ChatbotRules._log_validacion_fallida(campo)
             error_msg = ChatbotRules._get_error_campo_individual(campo)
             return f"❌ {error_msg}\n\nPor favor envía un valor válido para: {ChatbotRules._get_pregunta_campo_individual(campo)}"
 

@@ -234,8 +234,10 @@ class MetaWhatsAppService:
             url = f"{self.base_url}/{self.phone_number_id}/messages"
             if sticker_id:
                 sticker_payload = {"id": sticker_id}
+                sticker_mode = "id"
             elif sticker_url:
                 sticker_payload = {"link": sticker_url}
+                sticker_mode = "link"
             else:
                 logger.error("❌ Sticker sin URL ni media_id")
                 return False
@@ -248,7 +250,17 @@ class MetaWhatsAppService:
                 "sticker": sticker_payload
             }
             
+            logger.info(
+                "send_sticker request to=%s mode=%s",
+                normalized_number,
+                sticker_mode,
+            )
             response = self._session.post(url, headers=self.headers, json=payload, timeout=10)
+            logger.info(
+                "send_sticker response status=%s body=%s",
+                response.status_code,
+                (response.text or "")[:500],
+            )
             
             if response.status_code in [200, 201]:
                 response_data = response.json()

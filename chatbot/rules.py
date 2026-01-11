@@ -711,6 +711,11 @@ Responde con el número de la opción que necesitas 📱"""
                 sticker_url = f"https://raw.githubusercontent.com/Csuarezgurruchaga/argenfuego-chatbot/main/assets/{company_name}.webp"
                 sticker_media_id = os.getenv("WHATSAPP_STICKER_MEDIA_ID", "").strip()
 
+                logger.info(
+                    "sticker_config media_id_set=%s url=%s",
+                    bool(sticker_media_id),
+                    sticker_url,
+                )
                 if sticker_media_id:
                     sticker_enviado = meta_whatsapp_service.send_sticker(
                         numero_telefono,

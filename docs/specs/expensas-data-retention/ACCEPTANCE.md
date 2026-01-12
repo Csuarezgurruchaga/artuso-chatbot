@@ -1,7 +1,7 @@
 # Acceptance criteria: Expensas data retention (monthly purge)
 
 ## Functional
-1. Retention window keeps only rows from the current month and previous month, based on month/year.
+1. Retention window keeps only rows from the current month, based on month/year.
 2. `FECHA AVISO` is used as the primary date field; if invalid, `FECHA DE PAGO` is used.
 3. Only `dd/mm/yyyy` is accepted as a valid date format.
 4. Rows older than the retention window are deleted (not cleared), leaving no empty gaps.

@@ -54,8 +54,7 @@ class ExpensasPurgeService:
 
     @staticmethod
     def _retention_months(now_date: date) -> Set[Tuple[int, int]]:
-        prev_year, prev_month = ExpensasPurgeService._previous_month(now_date.year, now_date.month)
-        return {(now_date.year, now_date.month), (prev_year, prev_month)}
+        return {(now_date.year, now_date.month)}
 
     @staticmethod
     def _select_date(fecha_aviso: str, fecha_pago: str) -> Optional[date]:

@@ -1,14 +1,14 @@
 # Expensas data retention (monthly purge)
 
 ## Summary
-Purge old rows from the `chatbot-expensas` sheet so only the current month and the previous month are retained, based on `FECHA AVISO` (month/year only).
+Purge old rows from the `chatbot-expensas` sheet so only the current month is retained, based on `FECHA AVISO` (month/year only).
 
 ## Context
 - The expensas sheet grows indefinitely and will eventually exceed practical limits.
 - Only recent data is useful: current month plus previous month.
 
 ## Goals
-- Keep only rows from the current month and previous month.
+- Keep only rows from the current month.
 - Use `FECHA AVISO` as the primary date field (month/year only).
 - If `FECHA AVISO` is invalid, fall back to `FECHA DE PAGO`.
 - If both dates are invalid, keep the row and mark it in `COMENTARIO`.
@@ -25,7 +25,7 @@ Purge old rows from the `chatbot-expensas` sheet so only the current month and t
 - Ops/admin: run the monthly purge job.
 
 ## Functional requirements
-1. Retention window is two months: current month + previous month.
+1. Retention window is the current month only.
 2. Date evaluation uses month/year only (ignore day).
 3. Primary date field: `FECHA AVISO`.
 4. Fallback date field: `FECHA DE PAGO` if `FECHA AVISO` is invalid.
@@ -81,8 +81,8 @@ Purge old rows from the `chatbot-expensas` sheet so only the current month and t
   - Invalid date handling (keep + comment).
 
 ## Decisions and trade-offs
-- **Decision:** Retention window is current month + previous month.
-  - **Rationale:** Matches the requested two-month window.
+- **Decision:** Retention window is the current month only.
+  - **Rationale:** Matches the requested one-month window.
 - **Decision:** Only `dd/mm/yyyy` is accepted.
   - **Rationale:** Sheet data is expected to be consistent; keeps parsing strict.
 - **Decision:** If both dates are invalid, keep the row and mark `COMENTARIO`.

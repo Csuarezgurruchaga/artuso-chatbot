@@ -5,7 +5,7 @@
    - Load the `chatbot-expensas` sheet using existing Sheets credentials/env vars.
    - Resolve required headers case-insensitively: `FECHA AVISO`, `FECHA DE PAGO`, `COMENTARIO`.
    - Parse dates strictly as `dd/mm/yyyy`.
-   - Determine retention window using Argentina timezone (current month + previous month).
+   - Determine retention window using Argentina timezone (current month only).
 2. Implement row evaluation:
    - Use `FECHA AVISO` if valid; otherwise try `FECHA DE PAGO`.
    - If both invalid, keep row and append a short note to `COMENTARIO` (avoid overwriting existing text).
@@ -25,7 +25,7 @@
 ## Phase 3: Tests
 7. Add unit tests for:
    - Strict date parsing (`dd/mm/yyyy`).
-   - Month retention logic (current + previous month).
+   - Month retention logic (current month only).
    - Fallback from `FECHA AVISO` to `FECHA DE PAGO`.
    - Invalid date handling (kept + comment updated).
 

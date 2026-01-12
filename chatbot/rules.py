@@ -84,8 +84,8 @@ class ChatbotRules:
         },
         {
             "id": "solicitar_servicio",
-            "title": "Solicitar servicio",
-            "text": "Solicitar servicio",
+            "title": "Reclamos",
+            "text": "Reclamos",
             "tipo": TipoConsulta.SOLICITAR_SERVICIO,
         },
         {
@@ -100,14 +100,27 @@ class ChatbotRules:
     MENU_STOPWORDS = {"un", "una", "de", "del", "la", "el", "las", "los", "para", "por", "a", "y", "en"}
     EXTRA_MENU_KEYWORDS = {
         "pago_expensas": ["expensas", "pago", "abono", "liquidacion", "liquidación"],
-        "solicitar_servicio": ["servicio", "servicios", "arreglo", "reparacion", "reparación", "destapacion", "destapación", "fumigacion", "fumigación"],
+        "solicitar_servicio": [
+            "servicio",
+            "servicios",
+            "reclamo",
+            "reclamos",
+            "arreglo",
+            "reparacion",
+            "reparación",
+            "destapacion",
+            "destapación",
+            "humedad",
+            "fumigacion",
+            "fumigación",
+        ],
         "emergencia": ["emergencia", "urgente", "urgencia"],
     }
     _MENU_KEYWORDS = None
     SERVICE_TYPE_OPTIONS = (
-        {"id": "servicio_destapacion", "title": "Destapación de caños", "value": "Destapación de caños"},
-        {"id": "servicio_fumigacion", "title": "Fumigación", "value": "Fumigación"},
-        {"id": "servicio_otro", "title": "Otro servicio", "value": "Otro servicio"},
+        {"id": "servicio_destapacion", "title": "Destapación", "value": "Destapación"},
+        {"id": "servicio_fumigacion", "title": "Humedad", "value": "Humedad"},
+        {"id": "servicio_otro", "title": "Otro reclamo", "value": "Otro reclamo"},
     )
     MAX_DIRECCIONES_GUARDADAS = 5
 
@@ -214,11 +227,11 @@ class ChatbotRules:
             if normalized == option_norm:
                 return option["value"]
         if "destap" in normalized:
-            return "Destapación de caños"
-        if "fumig" in normalized:
-            return "Fumigación"
+            return "Destapación"
+        if "humed" in normalized:
+            return "Humedad"
         if "otro" in normalized:
-            return "Otro servicio"
+            return "Otro reclamo"
         return None
 
     @classmethod
@@ -398,14 +411,14 @@ Responde con el número de la opción que necesitas 📱"""
             mensaje_tipo = (
                 "Perfecto 👍\n"
                 "Para ayudarte mejor, voy a hacerte unas preguntas cortitas.\n"
-                "¿Qué tipo de servicio necesitás?"
+                "¿Qué tipo de reclamo queres realizar?"
             )
             success = ChatbotRules.send_service_type_buttons(numero_telefono, mensaje_tipo)
             if success:
                 return ""
             return (
                 f"{mensaje_tipo}\n"
-                "Opciones: Destapación de caños, Fumigación, Otro servicio."
+                "Opciones: Destapación, Humedad, Otro reclamo."
             )
 
         return ChatbotRules.get_mensaje_error_opcion()
@@ -771,7 +784,7 @@ Responde con el número de la opción que necesitas 📱"""
         if tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             return "Fecha de pago, monto, dirección, piso/departamento, comprobante y comentario."
         if tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
-            return "Tipo de servicio, ubicación y detalle."
+            return "Tipo de reclamo, ubicación y detalle."
         return "Información requerida."
     
     @staticmethod
@@ -791,7 +804,7 @@ Responde con el número de la opción que necesitas 📱"""
             return (
                 "Perfecto 👍\n"
                 "Para ayudarte mejor, voy a hacerte unas preguntas cortitas.\n"
-                "¿Qué tipo de servicio necesitás?"
+                "¿Qué tipo de reclamo queres realizar?"
             )
         return "Seleccioná una opción del menú para continuar."
     
@@ -825,8 +838,8 @@ Responde con el número de la opción que necesitas 📱"""
             if adjuntos_count:
                 adjuntos_texto = f"📎 *Adjuntos:* {ChatbotRules._format_archivos(adjuntos_count)}\n"
             return (
-                "📋 *Resumen de tu solicitud de servicio:*\n\n"
-                f"🛠️ *Tipo de servicio:* {datos.get('tipo_servicio', '')}\n"
+                "📋 *Resumen de tu reclamo:*\n\n"
+                f"🛠️ *Tipo de reclamo:* {datos.get('tipo_servicio', '')}\n"
                 f"📍 *Ubicación:* {datos.get('direccion_servicio', '')}\n"
                 f"📝 *Detalle:* {datos.get('detalle_servicio', '')}\n"
                 f"{adjuntos_texto}"
@@ -863,7 +876,7 @@ Responde con el número de la opción que necesitas 📱"""
     def _get_texto_tipo_consulta(tipo_consulta: TipoConsulta) -> str:
         textos = {
             TipoConsulta.PAGO_EXPENSAS: "registrar un pago de expensas",
-            TipoConsulta.SOLICITAR_SERVICIO: "solicitar un servicio",
+            TipoConsulta.SOLICITAR_SERVICIO: "realizar un reclamo",
             TipoConsulta.EMERGENCIA: "atender una emergencia",
         }
         return textos.get(tipo_consulta, "ayuda")
@@ -878,7 +891,7 @@ Responde con el número de la opción que necesitas 📱"""
             'piso_depto': "🚪 ¿Cuál es el piso y departamento?\n(Ejemplo: 3° B)\n(Puede ser piso, departamento o número de cochera)",
             'comprobante': "🧾 ¿Tenés el comprobante de pago? Podés enviarlo acá.\n(Puede ser imagen o PDF. Si no, escribí “Saltar”)",
             'comentario': "✍️ ¿Querés agregar algún comentario o aclaración?\n(Si no, escribí “Saltar”)",
-            'tipo_servicio': "¿Qué tipo de servicio necesitás? (Destapación de caños, Fumigación u Otro servicio)",
+            'tipo_servicio': "¿Qué tipo de reclamo queres realizar? (Destapación, Humedad u Otro reclamo)",
             'direccion_servicio': "¿En qué lugar se presenta el problema?\n(Indicá dirección, piso y departamento)",
             'detalle_servicio': "Contame brevemente qué está pasando.",
         }
@@ -1293,7 +1306,7 @@ Responde con el número de la opción que necesitas 📱"""
             'piso_depto': f"🚪 Piso/Departamento registrado: {valor}",
             'comprobante': "🧾 Comprobante recibido",
             'comentario': f"✍️ Comentario registrado: {valor}",
-            'tipo_servicio': f"🛠️ Tipo de servicio: {valor}",
+            'tipo_servicio': f"🛠️ Tipo de reclamo: {valor}",
             'direccion_servicio': f"📍 Ubicación registrada: {valor}",
             'detalle_servicio': f"📝 Detalle registrado: {valor}",
         }
@@ -1650,7 +1663,7 @@ Responde con el número de la opción que necesitas 📱"""
             'direccion': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
             'piso_depto': "Indica piso/departamento o número de cochera.",
             'comprobante': "Envía una imagen o PDF del comprobante, o escribe “Saltar”.",
-            'tipo_servicio': "Seleccioná: Destapación de caños, Fumigación u Otro servicio.",
+            'tipo_servicio': "Seleccioná: Destapación, Humedad u Otro reclamo.",
             'direccion_servicio': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
             'detalle_servicio': "Contanos un poco más sobre el problema (mínimo 5 caracteres).",
         }
@@ -1853,7 +1866,7 @@ Responde con el número del campo que deseas modificar."""
         return """❌ Entendido que hay información incorrecta.
 
 ¿Qué campo deseas corregir?
-1️⃣ Tipo de servicio
+1️⃣ Tipo de reclamo
 2️⃣ Ubicación
 3️⃣ Detalle
 4️⃣ Todo (reiniciar)
@@ -1906,7 +1919,7 @@ Responde con el número del campo que deseas modificar."""
                 mensaje_tipo = (
                     "Perfecto 👍\n"
                     "Para ayudarte mejor, voy a hacerte unas preguntas cortitas.\n"
-                    "¿Qué tipo de servicio necesitás?"
+                    "¿Qué tipo de reclamo queres realizar?"
                 )
                 success = ChatbotRules.send_service_type_buttons(numero_telefono, mensaje_tipo)
                 if success:
@@ -1922,7 +1935,7 @@ Responde con el número del campo que deseas modificar."""
         conversation_manager.update_estado(numero_telefono, EstadoConversacion.CORRIGIENDO_CAMPO)
 
         if campo == 'tipo_servicio':
-            mensaje_tipo = "Seleccioná el tipo de servicio correcto:"
+            mensaje_tipo = "Seleccioná el tipo de reclamo correcto:"
             success = ChatbotRules.send_service_type_buttons(numero_telefono, mensaje_tipo)
             if success:
                 return ""

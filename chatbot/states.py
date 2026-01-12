@@ -159,7 +159,7 @@ class ConversationManager:
             detalle = (datos_temp.get('detalle_servicio') or '').strip()
 
             if not tipo_servicio:
-                error_msgs.append("🔧 Falta seleccionar el tipo de servicio.")
+                error_msgs.append("🔧 Falta seleccionar el tipo de reclamo.")
             if not self._direccion_valida(direccion):
                 error_msgs.append("📍 Dirección inválida. Debe tener letras y números. Solo se permiten . , # / - º °")
             if len(detalle) < 5:

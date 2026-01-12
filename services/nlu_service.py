@@ -99,7 +99,7 @@ class NLUService:
             response = self._get_client().chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "Eres un clasificador de intenciones para un chatbot de expensas y servicios. Responde solo con la categoría exacta solicitada."},
+                    {"role": "system", "content": "Eres un clasificador de intenciones para un chatbot de expensas y reclamos. Responde solo con la categoría exacta solicitada."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0,
@@ -132,7 +132,7 @@ class NLUService:
             response = self._get_client().chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "Eres un extractor de datos para expensas y servicios. Responde solo con JSON válido."},
+                    {"role": "system", "content": "Eres un extractor de datos para expensas y reclamos. Responde solo con JSON válido."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0,

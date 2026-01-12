@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Crear la aplicación FastAPI
 app = FastAPI(
     title="Artuso Chatbot API",
-    description="Chatbot para pagos de expensas y solicitudes de servicio",
+    description="Chatbot para pagos de expensas y reclamos",
     version="1.0.0"
 )
 
@@ -190,11 +190,11 @@ def _postprocess_enviando(numero_telefono: str) -> None:
             send_message(numero_telefono, mensaje_final)
             _persist_client_address(conversacion)
             conversation_manager.finalizar_conversacion(numero_telefono)
-            logger.info("Solicitud de servicio enviada para %s", numero_telefono)
+            logger.info("Reclamo enviado para %s", numero_telefono)
         else:
-            error_msg = "❌ Hubo un error procesando tu solicitud. Por favor intenta nuevamente más tarde."
+            error_msg = "❌ Hubo un error procesando tu reclamo. Por favor intenta nuevamente más tarde."
             send_message(numero_telefono, error_msg)
-            logger.error("Error enviando email de servicio para %s", numero_telefono)
+            logger.error("Error enviando email de reclamo para %s", numero_telefono)
 
 
 def _maybe_notify_handoff(numero_telefono: str) -> None:

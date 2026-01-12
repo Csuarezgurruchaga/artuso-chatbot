@@ -85,7 +85,7 @@ class EmailService:
     def enviar_servicio_email(self, conversacion: ConversacionData) -> bool:
         try:
             datos = conversacion.datos_temporales
-            subject = "Nueva solicitud de servicio - Generado por Artu"
+            subject = "Nuevo reclamo - Generado por Artu"
             fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
 
             adjuntos = datos.get("adjuntos_servicio") or []
@@ -107,17 +107,17 @@ class EmailService:
             <html>
             <head>
                 <meta charset="utf-8">
-                <title>Nuevo pedido de servicio</title>
+                <title>Nuevo reclamo</title>
             </head>
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
                 <div style="background-color: #1f2937; color: white; padding: 16px; text-align: center; border-radius: 8px 8px 0 0;">
-                    <h1 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">SOLICITUD DE SERVICIO</h1>
+                    <h1 style="margin: 0; font-size: 18px; letter-spacing: 0.5px;">RECLAMO</h1>
                 </div>
                 <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-top: none; padding: 20px; border-radius: 0 0 8px 8px;">
                     <p style="margin: 0 0 12px 0;"><strong>Fecha:</strong> {fecha_actual}</p>
                     <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
                         <tr>
-                            <td style="padding: 6px 0; font-weight: bold; width: 35%;">Tipo de servicio:</td>
+                            <td style="padding: 6px 0; font-weight: bold; width: 35%;">Tipo de reclamo:</td>
                             <td style="padding: 6px 0;">{datos.get('tipo_servicio', '')}</td>
                         </tr>
                         <tr>
@@ -141,7 +141,7 @@ class EmailService:
 
             send_kwargs = {
                 "Source": f"{self.bot_name or 'Chatbot'} <{self.from_email}>",
-                "Destination": {"ToAddresses": ["sonntagnahuel@gmail.com"]},
+                "Destination": {"ToAddresses": ["recepcion.adm.artuso@gmail.com"]},
                 "Message": {
                     "Subject": {"Data": subject, "Charset": "UTF-8"},
                     "Body": {"Html": {"Data": html_content, "Charset": "UTF-8"}},
@@ -156,14 +156,14 @@ class EmailService:
 
             if status_code == 200:
                 logger.info(
-                    "Email de servicio enviado exitosamente para %s | message_id=%s",
+                    "Email de reclamo enviado exitosamente para %s | message_id=%s",
                     conversacion.numero_telefono,
                     response.get("MessageId", "unknown"),
                 )
                 return True
 
             logger.error(
-                "Error enviando email de servicio para %s | status=%s response=%s",
+                "Error enviando email de reclamo para %s | status=%s response=%s",
                 conversacion.numero_telefono,
                 status_code,
                 response,
@@ -172,14 +172,14 @@ class EmailService:
 
         except (ClientError, BotoCoreError) as e:
             logger.error(
-                "Error enviando email de servicio para %s con SES: %s",
+                "Error enviando email de reclamo para %s con SES: %s",
                 conversacion.numero_telefono,
                 str(e),
             )
             return False
         except Exception as e:
             logger.error(
-                "Error inesperado enviando email de servicio para %s: %s",
+                "Error inesperado enviando email de reclamo para %s: %s",
                 conversacion.numero_telefono,
                 str(e),
             )
@@ -188,7 +188,7 @@ class EmailService:
     def _get_email_subject(self, tipo_consulta: TipoConsulta) -> str:
         subjects = {
             TipoConsulta.PAGO_EXPENSAS: "Registro de pago de expensas - Artuso",
-            TipoConsulta.SOLICITAR_SERVICIO: "Nuevo pedido de servicio – Artuso",
+            TipoConsulta.SOLICITAR_SERVICIO: "Nuevo reclamo – Artuso",
             TipoConsulta.EMERGENCIA: "Emergencia - Artuso",
         }
         return subjects.get(tipo_consulta, "Nueva consulta - Artuso")
@@ -196,7 +196,7 @@ class EmailService:
     def _generate_email_html(self, conversacion: ConversacionData) -> str:
         tipo_consulta_texto = {
             TipoConsulta.PAGO_EXPENSAS: "Pago de Expensas",
-            TipoConsulta.SOLICITAR_SERVICIO: "Solicitud de Servicio",
+            TipoConsulta.SOLICITAR_SERVICIO: "Reclamo",
             TipoConsulta.EMERGENCIA: "Emergencia"
         }
 

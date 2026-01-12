@@ -5,7 +5,7 @@ Usuario escribió: "{{mensaje_usuario}}"
 
 Las opciones disponibles son:
 1. PAGO_EXPENSAS - registrar el pago de expensas (fecha, monto, dirección, piso/departamento)
-2. SOLICITAR_SERVICIO - pedir un servicio (destapación, fumigación u otro servicio)
+2. SOLICITAR_SERVICIO - realizar un reclamo (destapación, humedad u otro reclamo)
 3. EMERGENCIA - urgencias o emergencias que requieren atención inmediata
 
 EJEMPLOS DE CLASIFICACIÓN:
@@ -16,8 +16,8 @@ EJEMPLOS DE CLASIFICACIÓN:
 - "aboné 45800 de expensas"
 
 ✅ SOLICITAR_SERVICIO:
-- "necesito fumigación"
-- "tengo un problema y quiero un servicio"
+- "tengo humedad en la pared"
+- "tengo un problema y quiero hacer un reclamo"
 - "quiero destapar el caño del baño"
 
 ✅ EMERGENCIA:
@@ -31,7 +31,7 @@ Si no puedes determinar la intención con certeza, responde: UNCLEAR
 
 
 NLU_MESSAGE_PARSING_PROMPT = Template("""
-Eres un experto en parsing de datos para administración de consorcios y servicios.
+Eres un experto en parsing de datos para administración de consorcios y reclamos.
 
 Analiza este mensaje y extrae la información relevante:
 "{{mensaje_usuario}}"
@@ -54,7 +54,7 @@ Devuelve JSON con estos campos (cadena vacía si no encuentras):
 - "direccion": dirección del pago (expensas)
 - "piso_depto": piso/departamento/cochera
 - "comentario": comentario del pago
-- "tipo_servicio": tipo de servicio
+- "tipo_servicio": tipo de reclamo
 - "direccion_servicio": dirección/piso/depto del problema
 - "detalle_servicio": descripción breve
 
@@ -64,9 +64,9 @@ EJEMPLOS CRÍTICOS:
 Input: "Pagué las expensas el 12/09/2025 por 45800 en Av. Corrientes 1234, 3° B"
 Output: {{ "{" }}"tipo_consulta": "PAGO_EXPENSAS", "fecha_pago": "12/09/2025", "monto": "45800", "direccion": "Av. Corrientes 1234", "piso_depto": "3° B", "comentario": ""{{ "}" }}
 
-# EJEMPLO 2: Solicitar servicio
-Input: "Necesito fumigación en Rivadavia 222 piso 4B, hay cucarachas"
-Output: {{ "{" }}"tipo_consulta": "SOLICITAR_SERVICIO", "tipo_servicio": "Fumigación", "direccion_servicio": "Rivadavia 222 piso 4B", "detalle_servicio": "hay cucarachas"{{ "}" }}
+# EJEMPLO 2: Solicitar reclamo
+Input: "Tengo humedad en Rivadavia 222 piso 4B"
+Output: {{ "{" }}"tipo_consulta": "SOLICITAR_SERVICIO", "tipo_servicio": "Humedad", "direccion_servicio": "Rivadavia 222 piso 4B", "detalle_servicio": "humedad"{{ "}" }}
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional.
 """)

@@ -71,3 +71,20 @@ def test_rate_limit_service_counts(monkeypatch):
     allowed, count, _ = service.check_and_increment("1111", limit=2)
     assert allowed is False
     assert count == 2
+
+
+def test_rate_limit_resets_on_date_change(monkeypatch):
+    service = RateLimitService()
+    dummy = DummySheet(rows=[["phone", "date", "count", "updated_at"], ["1111", "2025-01-01", "5", ""]])
+
+    monkeypatch.setattr(service, "_get_sheet", lambda: dummy)
+    monkeypatch.setattr(service, "_today_key", lambda: "2025-01-02")
+    service.enabled = True
+
+    allowed, count, date_key = service.check_and_increment("1111", limit=2)
+    assert allowed is True
+    assert count == 1
+    assert date_key == "2025-01-02"
+    assert dummy.rows[1][1] == "2025-01-02"
+    assert dummy.rows[1][2] == "1"
+    assert len(dummy.rows) == 2

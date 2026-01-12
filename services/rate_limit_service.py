@@ -73,7 +73,7 @@ class RateLimitService:
         except Exception:
             return 0
 
-    def _find_row(self, ws, telefono: str, date_key: str) -> Tuple[Optional[int], Optional[list]]:
+    def _find_row(self, ws, telefono: str) -> Tuple[Optional[int], Optional[list]]:
         rows = ws.get_all_values()
         if not rows:
             return None, None
@@ -82,9 +82,9 @@ class RateLimitService:
         if header in {"phone", "telefono"}:
             start_idx = 1
         for idx, row in enumerate(rows[start_idx:], start=start_idx + 1):
-            if not row or len(row) < 2:
+            if not row:
                 continue
-            if row[0].strip() == telefono and row[1].strip() == date_key:
+            if row[0].strip() == telefono:
                 return idx, row
         return None, None
 
@@ -94,13 +94,17 @@ class RateLimitService:
             return True, 0, date_key
         try:
             ws = self._get_sheet()
-            row_idx, row = self._find_row(ws, telefono, date_key)
+            row_idx, row = self._find_row(ws, telefono)
             updated_at = datetime.utcnow().isoformat()
             if row_idx:
+                stored_date = row[1].strip() if len(row) > 1 else ""
                 count = self._parse_int(row[2]) if len(row) > 2 else 0
-                if count >= limit:
-                    return False, count, date_key
-                count += 1
+                if stored_date != date_key:
+                    count = 1
+                else:
+                    if count >= limit:
+                        return False, count, date_key
+                    count += 1
                 ws.update(
                     f"A{row_idx}:D{row_idx}",
                     [[telefono, date_key, str(count), updated_at]],

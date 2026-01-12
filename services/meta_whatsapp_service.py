@@ -655,12 +655,14 @@ class MetaWhatsAppService:
                 return None
             
             status = statuses[0]
-            
+            errors = status.get('errors', [])
+
             return {
                 "message_id": status.get('id', ''),
                 "status": status.get('status', ''),  # sent, delivered, read, failed
                 "timestamp": status.get('timestamp', ''),
-                "recipient_id": status.get('recipient_id', '')
+                "recipient_id": status.get('recipient_id', ''),
+                "errors": errors,
             }
             
         except Exception as e:

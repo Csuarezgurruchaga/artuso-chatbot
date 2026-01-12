@@ -922,8 +922,16 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
         if status_data:
             message_status = status_data.get('status', '')
             message_id = status_data.get('message_id', '')
+            errors = status_data.get('errors', [])
             
             logger.info(f"Status update recibido - ID: {message_id}, Status: {message_status}")
+            if errors:
+                logger.error(
+                    "Status update error - ID=%s Status=%s Errors=%s",
+                    message_id,
+                    message_status,
+                    errors,
+                )
             
             # Registrar métricas
             if message_status == 'sent':

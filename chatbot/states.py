@@ -156,12 +156,15 @@ class ConversationManager:
         elif conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             tipo_servicio = (datos_temp.get('tipo_servicio') or '').strip()
             direccion = (datos_temp.get('direccion_servicio') or '').strip()
+            piso_depto = (datos_temp.get('piso_depto') or '').strip()
             detalle = (datos_temp.get('detalle_servicio') or '').strip()
 
             if not tipo_servicio:
                 error_msgs.append("🔧 Falta seleccionar el tipo de reclamo.")
             if not self._direccion_valida(direccion):
                 error_msgs.append("📍 Dirección inválida. Debe tener letras y números. Solo se permiten . , # / - º °")
+            if len(piso_depto) < 1:
+                error_msgs.append("🚪 Piso/Departamento/UF inválido. Indica al menos un valor.")
             if len(detalle) < 5:
                 error_msgs.append("📝 Contanos un poco más sobre el problema (mínimo 5 caracteres).")
 
@@ -201,7 +204,7 @@ class ConversationManager:
         if conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             campos_orden = ['fecha_pago', 'monto', 'direccion', 'piso_depto', 'comprobante', 'comentario']
         elif conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
-            campos_orden = ['tipo_servicio', 'direccion_servicio', 'detalle_servicio']
+            campos_orden = ['tipo_servicio', 'direccion_servicio', 'piso_depto', 'detalle_servicio']
         else:
             return None
 
@@ -235,7 +238,7 @@ class ConversationManager:
         if conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             campos_orden = ['fecha_pago', 'monto', 'direccion', 'piso_depto', 'comprobante', 'comentario']
         elif conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
-            campos_orden = ['tipo_servicio', 'direccion_servicio', 'detalle_servicio']
+            campos_orden = ['tipo_servicio', 'direccion_servicio', 'piso_depto', 'detalle_servicio']
         else:
             campos_orden = []
 

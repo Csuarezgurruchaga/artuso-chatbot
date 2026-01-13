@@ -125,6 +125,10 @@ class EmailService:
                             <td style="padding: 6px 0;">{datos.get('direccion_servicio', '')}</td>
                         </tr>
                         <tr>
+                            <td style="padding: 6px 0; font-weight: bold;">Piso/Departamento/UF:</td>
+                            <td style="padding: 6px 0;">{datos.get('piso_depto', '')}</td>
+                        </tr>
+                        <tr>
                             <td style="padding: 6px 0; font-weight: bold;">Detalle:</td>
                             <td style="padding: 6px 0;">{datos.get('detalle_servicio', '')}</td>
                         </tr>

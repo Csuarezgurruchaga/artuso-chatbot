@@ -796,7 +796,7 @@ Responde con el número de la opción que necesitas 📱"""
         if tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             return "Fecha de pago, monto, dirección, piso/departamento, comprobante y comentario."
         if tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
-            return "Tipo de reclamo, ubicación y detalle."
+            return "Tipo de reclamo, ubicación, piso/departamento/UF y detalle."
         return "Información requerida."
     
     @staticmethod
@@ -853,6 +853,7 @@ Responde con el número de la opción que necesitas 📱"""
                 "📋 *Resumen de tu reclamo:*\n\n"
                 f"🛠️ *Tipo de reclamo:* {datos.get('tipo_servicio', '')}\n"
                 f"📍 *Ubicación:* {datos.get('direccion_servicio', '')}\n"
+                f"🚪 *Piso/Departamento/UF:* {datos.get('piso_depto', '')}\n"
                 f"📝 *Detalle:* {datos.get('detalle_servicio', '')}\n"
                 f"{adjuntos_texto}"
                 "\n"
@@ -894,20 +895,23 @@ Responde con el número de la opción que necesitas 📱"""
         return textos.get(tipo_consulta, "ayuda")
     
     @staticmethod
-    def _get_pregunta_campo_individual(campo: str) -> str:
+    def _get_pregunta_campo_individual(campo: str, tipo_consulta: TipoConsulta = None) -> str:
         fecha_ejemplo = _fecha_argentina(0)
+        piso_depto_pregunta = "🚪¿Cual es tu unidad?\nEjemplo: 2° A, UF 14, Cochera 12."
+        if tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+            piso_depto_pregunta = "¿Cuál es el piso/departamento/UF?"
         preguntas = {
             'fecha_pago': f"📅 ¿En qué fecha realizaste el pago de las expensas?\n(Por ejemplo: {fecha_ejemplo})",
             'monto': "💰 ¿Cuál fue el monto que abonaste?\n(Podés escribir solo el número, por ejemplo: 45800)",
             'direccion': "🏠 ¿A qué dirección corresponde el pago?\n(Ejemplo: Av. Corrientes 1234)",
-            'piso_depto': "🚪¿Cual es tu unidad?\nEjemplo: 2° A, UF 14, Cochera 12.",
+            'piso_depto': piso_depto_pregunta,
             'comprobante': "🧾 ¿Tenés el comprobante de pago? Podés enviarlo acá.\n(Puede ser imagen o PDF. Si no, escribí “Saltar”)",
             'comentario': "✍️ ¿Querés agregar algún comentario o aclaración?\n(Si no, escribí “Saltar”)",
             'tipo_servicio': (
                 "¿Qué tipo de reclamo queres realizar? "
                 "(Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos u Otro reclamo)"
             ),
-            'direccion_servicio': "¿En qué lugar se presenta el problema?\n(Indicá dirección, piso y departamento)",
+            'direccion_servicio': "¿En qué lugar se presenta el problema?\n(Indicá dirección)",
             'detalle_servicio': "Contame brevemente qué está pasando.",
         }
         return preguntas.get(campo, "Por favor proporciona más información.")
@@ -915,7 +919,7 @@ Responde con el número de la opción que necesitas 📱"""
     @staticmethod
     def _get_pregunta_campo_secuencial(campo: str, tipo_consulta: TipoConsulta = None) -> str:
         """Preguntas específicas para el flujo secuencial"""
-        return ChatbotRules._get_pregunta_campo_individual(campo)
+        return ChatbotRules._get_pregunta_campo_individual(campo, tipo_consulta)
 
     @staticmethod
     def _extraer_piso_depto_de_direccion(direccion: str) -> tuple[str, Optional[str]]:
@@ -1187,8 +1191,8 @@ Responde con el número de la opción que necesitas 📱"""
             conversation_manager.set_datos_temporales(numero_telefono, "direccion", direccion)
             conversation_manager.set_datos_temporales(numero_telefono, "piso_depto", piso)
         else:
-            direccion_servicio = direccion if not piso else f"{direccion} {piso}".strip()
-            conversation_manager.set_datos_temporales(numero_telefono, "direccion_servicio", direccion_servicio)
+            conversation_manager.set_datos_temporales(numero_telefono, "direccion_servicio", direccion)
+            conversation_manager.set_datos_temporales(numero_telefono, "piso_depto", piso)
 
         try:
             clients_sheet_service.update_last_used(numero_telefono, direccion, piso)
@@ -1330,7 +1334,7 @@ Responde con el número de la opción que necesitas 📱"""
             'fecha_pago': f"📅 Fecha registrada: {valor}",
             'monto': f"💰 Monto registrado: {valor}",
             'direccion': f"🏠 Dirección registrada: {valor}",
-            'piso_depto': f"🚪 Piso/Departamento registrado: {valor}",
+            'piso_depto': f"🚪 Piso/Departamento/UF registrado: {valor}",
             'comprobante': "🧾 Comprobante recibido",
             'comentario': f"✍️ Comentario registrado: {valor}",
             'tipo_servicio': f"🛠️ Tipo de reclamo: {valor}",
@@ -1389,6 +1393,32 @@ Responde con el número de la opción que necesitas 📱"""
             return ChatbotRules.get_mensaje_confirmacion(conversacion)
 
         valor = mensaje.strip()
+        if campo_actual == "piso_depto":
+            sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
+            valor_lower = valor.lower()
+            if valor_lower == "piso_depto_usar":
+                if sugerido:
+                    valor = sugerido
+                    conversation_manager.set_datos_temporales(
+                        numero_telefono,
+                        "_piso_depto_sugerido",
+                        None,
+                    )
+                else:
+                    return ChatbotRules._get_pregunta_campo_secuencial(
+                        campo_actual,
+                        conversacion.tipo_consulta,
+                    )
+            elif valor_lower == "piso_depto_otro":
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_piso_depto_sugerido",
+                    None,
+                )
+                return ChatbotRules._get_pregunta_campo_secuencial(
+                    campo_actual,
+                    conversacion.tipo_consulta,
+                )
 
         if campo_actual == 'fecha_pago':
             fecha_rel = _parse_fecha_hoy_ayer(valor)
@@ -1443,6 +1473,34 @@ Responde con el número de la opción que necesitas 📱"""
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
+        elif campo_actual == 'direccion_servicio' and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+            direccion_base = valor
+            direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+            logger.info(
+                "Direccion servicio parse: phone=%s base=%s sugerido=%s",
+                numero_telefono,
+                direccion_base[:80],
+                sugerido,
+            )
+
+            if sugerido and len(direccion_base) >= 5:
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_piso_depto_sugerido",
+                    sugerido,
+                )
+                valor = direccion_base
+            else:
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_piso_depto_sugerido",
+                    None,
+                )
+            if not ChatbotRules._validar_campo_individual(campo_actual, valor):
+                ChatbotRules._log_validacion_fallida(campo_actual)
+                error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
+                return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
+            conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
         elif campo_actual == 'comentario' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, "")
         elif campo_actual == 'comprobante' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
@@ -1455,20 +1513,14 @@ Responde con el número de la opción que necesitas 📱"""
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
 
         if campo_actual == "piso_depto" and conversacion.datos_temporales.get("_direccion_nueva"):
-            direccion = conversacion.datos_temporales.get("direccion", "")
+            if conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+                direccion = conversacion.datos_temporales.get("direccion_servicio", "")
+            else:
+                direccion = conversacion.datos_temporales.get("direccion", "")
             conversation_manager.set_datos_temporales(
                 numero_telefono,
                 "_direccion_para_guardar",
                 {"direccion": direccion, "piso_depto": valor},
-            )
-            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
-
-        if campo_actual == "direccion_servicio" and conversacion.datos_temporales.get("_direccion_nueva"):
-            base, piso = ChatbotRules._extraer_piso_depto_de_direccion(valor)
-            conversation_manager.set_datos_temporales(
-                numero_telefono,
-                "_direccion_para_guardar",
-                {"direccion": base or valor, "piso_depto": piso or ""},
             )
             conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
 
@@ -1502,7 +1554,7 @@ Responde con el número de la opción que necesitas 📱"""
                 return direccion_prompt
         if (
             siguiente_campo == 'piso_depto'
-            and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
+            and conversacion.tipo_consulta in {TipoConsulta.PAGO_EXPENSAS, TipoConsulta.SOLICITAR_SERVICIO}
             and not numero_telefono.startswith("messenger:")
         ):
             sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
@@ -1567,12 +1619,12 @@ Responde con el número de la opción que necesitas 📱"""
             else:
                 # Preguntar por el siguiente campo
                 siguiente_campo = campos_faltantes[siguiente_indice]
-                return f"✅ Perfecto!\n\n{ChatbotRules._get_pregunta_campo_individual(siguiente_campo)}"
+                return f"✅ Perfecto!\n\n{ChatbotRules._get_pregunta_campo_individual(siguiente_campo, conversacion.tipo_consulta)}"
         else:
             # Campo inválido, pedir de nuevo
             ChatbotRules._log_validacion_fallida(campo_actual)
             error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
-            return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo_actual)}"
+            return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo_actual, conversacion.tipo_consulta)}"
     
     @staticmethod
     def _normalizar_fecha_pago(texto: str) -> Optional[str]:
@@ -1688,7 +1740,7 @@ Responde con el número de la opción que necesitas 📱"""
             'fecha_pago': "Usá el formato dd/mm/yyyy (ej: 12/09/2025).",
             'monto': "Ingresá un monto válido mayor a 0 y hasta 2000000.",
             'direccion': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
-            'piso_depto': "Indica piso/departamento o número de cochera.",
+            'piso_depto': "Indica piso/departamento/UF.",
             'comprobante': "Envía una imagen o PDF del comprobante, o escribe “Saltar”.",
             'tipo_servicio': "Seleccioná: Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos u Otro reclamo.",
             'direccion_servicio': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
@@ -1789,7 +1841,7 @@ Responde con el número de la opción que necesitas 📱"""
             else:
                 # Continuar con el siguiente campo faltante
                 siguiente_campo = campos_faltantes[indice_actual]
-                return f"✅ Perfecto!\n\n{ChatbotRules._get_pregunta_campo_individual(siguiente_campo)}"
+                return f"✅ Perfecto!\n\n{ChatbotRules._get_pregunta_campo_individual(siguiente_campo, conversacion.tipo_consulta)}"
         else:
             # VERIFICAR SI ESTAMOS EN FLUJO SECUENCIAL
             if conversacion.estado_anterior == EstadoConversacion.RECOLECTANDO_SECUENCIAL or len([k for k in conversacion.datos_temporales.keys() if not k.startswith('_')]) <= 2:
@@ -1895,8 +1947,9 @@ Responde con el número del campo que deseas modificar."""
 ¿Qué campo deseas corregir?
 1️⃣ Tipo de reclamo
 2️⃣ Ubicación
-3️⃣ Detalle
-4️⃣ Todo (reiniciar)
+3️⃣ Piso/Departamento/UF
+4️⃣ Detalle
+5️⃣ Todo (reiniciar)
 
 Responde con el número del campo que deseas modificar."""
     
@@ -1928,10 +1981,12 @@ Responde con el número del campo que deseas modificar."""
                 '1️⃣': 'tipo_servicio',
                 '2': 'direccion_servicio',
                 '2️⃣': 'direccion_servicio',
-                '3': 'detalle_servicio',
-                '3️⃣': 'detalle_servicio',
-                '4': 'todo',
-                '4️⃣': 'todo',
+                '3': 'piso_depto',
+                '3️⃣': 'piso_depto',
+                '4': 'detalle_servicio',
+                '4️⃣': 'detalle_servicio',
+                '5': 'todo',
+                '5️⃣': 'todo',
             }
 
         campo = opciones_correccion.get(mensaje)
@@ -1979,7 +2034,10 @@ Responde con el número del campo que deseas modificar."""
             if success:
                 return ""
 
-        return f"✅ Perfecto. Por favor envía el nuevo valor para: {ChatbotRules._get_pregunta_campo_individual(campo)}"
+        return (
+            "✅ Perfecto. Por favor envía el nuevo valor para: "
+            f"{ChatbotRules._get_pregunta_campo_individual(campo, conversacion.tipo_consulta)}"
+        )
         
     @staticmethod
     def _procesar_correccion_campo_especifico(numero_telefono: str, mensaje: str) -> str:
@@ -2009,7 +2067,7 @@ Responde con el número del campo que deseas modificar."""
             if not matched:
                 ChatbotRules._log_validacion_fallida(campo)
                 error_msg = ChatbotRules._get_error_campo_individual(campo)
-                return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo)}"
+                return f"❌ {error_msg}\n\n{ChatbotRules._get_pregunta_campo_individual(campo, conversacion.tipo_consulta)}"
             valor = matched
         elif campo == 'comentario' and valor.lower() in ['saltar', 'skip', 'no', 'n/a', 'na']:
             valor = ""
@@ -2018,21 +2076,28 @@ Responde con el número del campo que deseas modificar."""
         elif not ChatbotRules._validar_campo_individual(campo, valor):
             ChatbotRules._log_validacion_fallida(campo)
             error_msg = ChatbotRules._get_error_campo_individual(campo)
-            return f"❌ {error_msg}\n\nPor favor envía un valor válido para: {ChatbotRules._get_pregunta_campo_individual(campo)}"
+            return (
+                f"❌ {error_msg}\n\nPor favor envía un valor válido para: "
+                f"{ChatbotRules._get_pregunta_campo_individual(campo, conversacion.tipo_consulta)}"
+            )
 
         conversation_manager.set_datos_temporales(numero_telefono, campo, valor)
 
         if conversacion.datos_temporales.get("_direccion_para_guardar") is not None:
-            if campo in {"direccion", "piso_depto"}:
-                direccion = conversacion.datos_temporales.get("direccion", "")
-                piso = conversacion.datos_temporales.get("piso_depto", "")
+            if campo == "piso_depto":
+                if conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+                    direccion = conversacion.datos_temporales.get("direccion_servicio", "")
+                else:
+                    direccion = conversacion.datos_temporales.get("direccion", "")
                 conversation_manager.set_datos_temporales(
                     numero_telefono,
                     "_direccion_para_guardar",
-                    {"direccion": direccion, "piso_depto": piso},
+                    {"direccion": direccion, "piso_depto": valor},
                 )
-            elif campo == "direccion_servicio":
-                base, piso = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+            elif campo in {"direccion", "direccion_servicio"}:
+                base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+                piso_actual = conversacion.datos_temporales.get("piso_depto", "")
+                piso = sugerido or piso_actual
                 conversation_manager.set_datos_temporales(
                     numero_telefono,
                     "_direccion_para_guardar",

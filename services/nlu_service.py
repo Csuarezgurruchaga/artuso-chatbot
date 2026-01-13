@@ -2,42 +2,72 @@ import os
 import logging
 import json
 import re
-from typing import Optional, Dict, Any
+import unicodedata
+from typing import Optional, Dict, Any, Iterable
 from openai import OpenAI
 from chatbot.models import TipoConsulta
-from templates.template import NLU_INTENT_PROMPT, NLU_MESSAGE_PARSING_PROMPT, CONTACT_INFO_DETECTION_PROMPT, CONTACT_INFO_RESPONSE_PROMPT, PERSONALIZED_GREETING_PROMPT
+from templates.template import NLU_INTENT_PROMPT, NLU_MESSAGE_PARSING_PROMPT, PERSONALIZED_GREETING_PROMPT
 from config.company_profiles import get_active_company_profile, get_company_info_text
 
 logger = logging.getLogger(__name__)
 
-# Patrones regex para detectar consultas específicas de contacto empresarial
-CONTACT_QUERY_PATTERNS = [
-    # Teléfono
-    r'\b(?:cuál|cual)\s+es\s+su\s+(?:teléfono|telefono|número|numero)',
-    r'\b(?:número|numero)\s+de\s+(?:teléfono|telefono)',
-    r'\b(?:cómo|como)\s+(?:los|las)\s+(?:contacto|llamo)',
-    r'\bteléfonos?\b.*\b(?:empresa|ustedes|su)',
-    
-    # Dirección
-    r'\b(?:dónde|donde)\s+(?:están|esta|estan)\s+(?:ubicados|ubicada)',
-    r'\b(?:cuál|cual)\s+es\s+su\s+dirección',
-    r'\b(?:dónde|donde)\s+(?:los|las)\s+encuentro',
-    
-    # Horarios
-    r'\b(?:cuándo|cuando)\s+(?:abren|abre|atienden)',
-    r'\b(?:qué|que)\s+horarios?\s+tienen',
-    r'\bhasta\s+(?:qué|que)\s+hora',
-    r'\bhorarios?\b.*\b(?:empresa|ustedes)',
-    
-    # Email
-    r'\b(?:cuál|cual)\s+es\s+su\s+(?:email|correo)',
-    r'\bcorreo\s+electrónico\b.*\b(?:empresa|ustedes)',
-    
-    # Información general
-    r'\bdatos?\s+de\s+contacto\b',
-    r'\binformación\s+de\s+contacto\b',
-    r'\b(?:cómo|como)\s+(?:los|las)\s+contacto\b'
+CONTACT_INFO_PHRASE_PATTERN = re.compile(r"\binformacion\s+de\s+contacto\b")
+PHONE_KEYWORDS = ("telefono", "tel", "celular", "cel", "movil")
+WHATSAPP_KEYWORDS = ("whatsapp", "wsp", "wa", "wpp")
+EMAIL_KEYWORDS = ("email", "mail", "correo")
+CALL_PATTERNS = [
+    re.compile(r"\bllamar(?:le|les|lo|los|la|las|me|nos)?\b"),
+    re.compile(r"\bllamo\b"),
 ]
+NUMERO_SYNONYMS_PATTERN = r"(?:\b(?:numero|nro\.?|num)\b|n°|nº|#)"
+EXCLUSION_TERMS = (
+    "cuenta",
+    "factura",
+    "reclamo",
+    "seguimiento",
+    "unidad",
+    "depto",
+    "dto",
+    "piso",
+    "contrato",
+    "cliente",
+    "servicio",
+    "pedido",
+    "tramite",
+    "referencia",
+    "comprobante",
+    "recibo",
+    "expensa",
+    "expensas",
+    "pago",
+    "cbu",
+    "dni",
+    "cuit",
+    "cuil",
+)
+EXCLUSION_PATTERN = re.compile(
+    rf"{NUMERO_SYNONYMS_PATTERN}\s+de\s+(?:{'|'.join(EXCLUSION_TERMS)})\b"
+)
+CONTACT_ADJ_NUM_PATTERN = re.compile(
+    rf"{NUMERO_SYNONYMS_PATTERN}\s+(?:de|para)?\s*(?:contacto|comunicarme)\b"
+)
+CONTACT_ADJ_EMAIL_PATTERN = re.compile(
+    r"\b(?:email|mail|correo)\b\s+(?:de|para)?\s*(?:contacto|comunicarme)\b"
+)
+
+
+def _normalize_text(value: str) -> str:
+    value = value.lower().strip()
+    return "".join(
+        c for c in unicodedata.normalize("NFD", value) if unicodedata.category(c) != "Mn"
+    )
+
+
+def _has_any_keyword(text: str, keywords: Iterable[str]) -> bool:
+    for keyword in keywords:
+        if re.search(rf"\b{re.escape(keyword)}\b", text):
+            return True
+    return False
 
 # Patrones para detectar intención de hablar con humano/agente
 HUMAN_INTENT_PATTERNS = [
@@ -60,9 +90,6 @@ HUMAN_INTENT_PATTERNS = [
     r"\bquiero\s+hablar\s+con\s+(?:vos|ustedes)\b",
     r"\bnecesito\s+hablar\s+con\s+(?:alguien|una\s+persona)\b",
     r"\bcomunicar(?:me)?\s+con\s+(?:alguien|una\s+persona)\b",
-    r"\bnecesito\s+un\s+tel[eé]fono\b",
-    r"\btelefono\s+para\s+llamar(?:los|las)?\b",
-    r"\bquiero\s+llamar\b",
 
     # Frustración / fallback
     r"no\s+me\s+entend[eé]s?",
@@ -80,6 +107,23 @@ class NLUService:
     
     def __init__(self):
         self._client = None
+
+    @staticmethod
+    def _matches_contact_adjacency(mensaje_lower: str) -> bool:
+        return bool(
+            CONTACT_ADJ_NUM_PATTERN.search(mensaje_lower)
+            or CONTACT_ADJ_EMAIL_PATTERN.search(mensaje_lower)
+        )
+
+    @staticmethod
+    def _has_contact_channels(mensaje_lower: str) -> bool:
+        if _has_any_keyword(mensaje_lower, PHONE_KEYWORDS):
+            return True
+        if _has_any_keyword(mensaje_lower, WHATSAPP_KEYWORDS):
+            return True
+        if _has_any_keyword(mensaje_lower, EMAIL_KEYWORDS):
+            return True
+        return any(pattern.search(mensaje_lower) for pattern in CALL_PATTERNS)
 
     def _get_client(self) -> OpenAI:
         if self._client is None:
@@ -199,21 +243,37 @@ class NLUService:
         Detecta si el usuario está preguntando sobre información de contacto de la empresa usando regex
         """
         try:
-            # Normalización básica: minúsculas y remover tildes
-            import unicodedata
-            def _normalize(s: str) -> str:
-                s = s.lower().strip()
-                return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+            mensaje_lower = _normalize_text(mensaje_usuario)
 
-            mensaje_lower = _normalize(mensaje_usuario)
-            
-            # Buscar coincidencias con los patrones de consulta de contacto
-            for pattern in CONTACT_QUERY_PATTERNS:
-                if re.search(pattern, mensaje_lower, re.IGNORECASE):
-                    logger.info(f"Detección consulta contacto (regex): '{mensaje_usuario}' -> CONTACTO (pattern: {pattern})")
-                    return True
-            
-            logger.info(f"Detección consulta contacto (regex): '{mensaje_usuario}' -> NO")
+            if EXCLUSION_PATTERN.search(mensaje_lower):
+                logger.info(
+                    "Detección consulta contacto (regex): '%s' -> NO (exclusion)",
+                    mensaje_usuario,
+                )
+                return False
+
+            if CONTACT_INFO_PHRASE_PATTERN.search(mensaje_lower):
+                logger.info(
+                    "Detección consulta contacto (regex): '%s' -> CONTACTO (informacion)",
+                    mensaje_usuario,
+                )
+                return True
+
+            if self._has_contact_channels(mensaje_lower):
+                logger.info(
+                    "Detección consulta contacto (regex): '%s' -> CONTACTO (canal)",
+                    mensaje_usuario,
+                )
+                return True
+
+            if self._matches_contact_adjacency(mensaje_lower):
+                logger.info(
+                    "Detección consulta contacto (regex): '%s' -> CONTACTO (adjacency)",
+                    mensaje_usuario,
+                )
+                return True
+
+            logger.info("Detección consulta contacto (regex): '%s' -> NO", mensaje_usuario)
             return False
         except Exception as e:
             logger.error(f"Error detectando consulta de contacto: {str(e)}")
@@ -225,13 +285,7 @@ class NLUService:
         Usa patrones regex tolerantes a acentos y variaciones comunes.
         """
         try:
-            # Normalización básica
-            import unicodedata
-            def _normalize(s: str) -> str:
-                s = s.lower().strip()
-                return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-
-            mensaje_lower = _normalize(mensaje_usuario)
+            mensaje_lower = _normalize_text(mensaje_usuario)
 
             # Negaciones simples para evitar falsos positivos
             negaciones = [
@@ -243,6 +297,17 @@ class NLUService:
                 if re.search(neg, mensaje_lower, re.IGNORECASE):
                     logger.info(f"Detección humano (regex): '{mensaje_usuario}' -> NO (negación)")
                     return False
+
+            if "comunicarme" in mensaje_lower:
+                if (
+                    not self._matches_contact_adjacency(mensaje_lower)
+                    and not self._has_contact_channels(mensaje_lower)
+                ):
+                    logger.info(
+                        "Detección humano (regex): '%s' -> HUMANO (comunicarme sin canal)",
+                        mensaje_usuario,
+                    )
+                    return True
 
             for pattern in HUMAN_INTENT_PATTERNS:
                 if re.search(pattern, mensaje_lower, re.IGNORECASE):
@@ -295,51 +360,19 @@ class NLUService:
     
     def generar_respuesta_contacto(self, mensaje_usuario: str) -> str:
         """
-        Genera una respuesta natural sobre información de contacto de la empresa
+        Genera una respuesta estática sobre información de contacto de la empresa
         """
         try:
             company_profile = get_active_company_profile()
-            
-            # Manejar tanto formato de teléfono dict como string para compatibilidad
-            template_params = {
-                'mensaje_usuario': mensaje_usuario,
-                'company_name': company_profile['name'],
-                'company_address': company_profile['address'],
-                'company_hours': company_profile['hours'],
-                'company_email': company_profile['email'],
-                'company_website': company_profile.get('website', '')
-            }
-            
-            # Agregar parámetros de teléfono según el formato
-            if isinstance(company_profile['phone'], dict):
-                template_params['company_public_phone'] = company_profile['phone'].get('public_phone', '')
-                template_params['company_mobile_phone'] = company_profile['phone'].get('mobile_phone', '')
-                template_params['company_phone'] = ''
-            else:
-                template_params['company_phone'] = company_profile['phone']
-                template_params['company_public_phone'] = ''
-                template_params['company_mobile_phone'] = ''
-            
-            prompt = CONTACT_INFO_RESPONSE_PROMPT.render(**template_params)
+            contact_message = company_profile.get("contact_message")
+            if contact_message:
+                logger.info("Respuesta contacto generada (estatica) para: '%s'", mensaje_usuario)
+                return contact_message
 
-            response = self._get_client().chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": f"Eres {company_profile['bot_name']}, asistente virtual de {company_profile['name']}. Responde de manera amigable y profesional."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=200
-            )
-            
-            respuesta = response.choices[0].message.content.strip()
-            logger.info(f"Respuesta contacto generada para: '{mensaje_usuario}'")
-            
-            return respuesta
-            
+            logger.info("Respuesta contacto generada (fallback) para: '%s'", mensaje_usuario)
+            return get_company_info_text()
         except Exception as e:
             logger.error(f"Error generando respuesta de contacto: {str(e)}")
-            # Fallback a respuesta estática si falla el LLM
             return get_company_info_text()
     
     def generar_saludo_personalizado(self, nombre_usuario: str = "", es_primera_vez: bool = True) -> str:

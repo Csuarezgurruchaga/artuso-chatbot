@@ -30,6 +30,22 @@ COMPANY_PROFILES = {
         "address": "Direccion pendiente",
         "hours": "Horarios pendientes",
         "email": "admin@artuso.com",
+        "contact_message": (
+            "Gracias por comunicarte con Administración Artuso.\n"
+            "Podés contactarnos por los siguientes canales:\n"
+            "\n"
+            "📞 Teléfonos\n"
+            "4953-3018 / 4953-0577\n"
+            "🕘 Lunes a viernes de 11:00 a 13:00 y de 14:00 a 16:00\n"
+            "\n"
+            "📱 WhatsApp\n"
+            "11-5348-8741\n"
+            "🕘 Lunes a viernes de 11:00 a 16:00\n"
+            "\n"
+            "✉️ Correo electrónico\n"
+            "• Para asuntos administrativos o reclamos: recepcion.adm.artuso@gmail.com\n"
+            "• Para temas relacionados con pago de expensas: artusoexpensas2@gmail.com"
+        ),
         "email_bot": "bot@argenfuego.com",
         "website": "",
         "expensas_address_map": {

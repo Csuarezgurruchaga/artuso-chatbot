@@ -2045,18 +2045,8 @@ Responde con el número del campo que deseas modificar."""
             # Enviar flujo de 3 mensajes: saludo + imagen + presentación (todo en background)
             return ChatbotRules._enviar_flujo_saludo_completo(numero_telefono, nombre_usuario)
         
-        # INTERCEPTAR CONSULTAS DE CONTACTO EN CUALQUIER MOMENTO (Contextual Intent Interruption)
-        from services.nlu_service import nlu_service
-        if nlu_service.detectar_consulta_contacto(mensaje):
-            respuesta_contacto = nlu_service.generar_respuesta_contacto(mensaje)
-            
-            # Si estamos en un flujo activo, agregar mensaje para continuar
-            if conversacion.estado not in [EstadoConversacion.INICIO, EstadoConversacion.ESPERANDO_OPCION]:
-                respuesta_contacto += "\n\n💬 *Ahora sigamos con tu consulta anterior...*"
-            
-            return respuesta_contacto
-        
         # INTERCEPTAR SOLICITUD DE HABLAR CON HUMANO EN CUALQUIER MOMENTO -> activar handoff
+        from services.nlu_service import nlu_service
         if nlu_service.detectar_solicitud_humano(mensaje):
             ChatbotRules._activar_handoff(numero_telefono, mensaje)
 
@@ -2091,6 +2081,16 @@ Responde con el número del campo que deseas modificar."""
                     base += "\n\n🕒 En este momento estamos fuera de horario. Tomaremos tu caso y te responderemos a la brevedad."
                 return base
         
+        # INTERCEPTAR CONSULTAS DE CONTACTO EN CUALQUIER MOMENTO (Contextual Intent Interruption)
+        if nlu_service.detectar_consulta_contacto(mensaje):
+            respuesta_contacto = nlu_service.generar_respuesta_contacto(mensaje)
+
+            # Si estamos en un flujo activo, agregar mensaje para continuar
+            if conversacion.estado not in [EstadoConversacion.INICIO, EstadoConversacion.ESPERANDO_OPCION]:
+                respuesta_contacto += "\n\n💬 *Ahora sigamos con tu consulta anterior...*"
+
+            return respuesta_contacto
+
         # INTERCEPTAR SOLICITUDES DE VOLVER AL MENÚ EN CUALQUIER MOMENTO
         if ChatbotRules._detectar_volver_menu(mensaje) and conversacion.estado not in [EstadoConversacion.INICIO, EstadoConversacion.ESPERANDO_OPCION]:
             # Limpiar datos temporales y volver al menú

@@ -119,7 +119,13 @@ class ChatbotRules:
     _MENU_KEYWORDS = None
     SERVICE_TYPE_OPTIONS = (
         {"id": "servicio_destapacion", "title": "Destapación", "value": "Destapación"},
-        {"id": "servicio_fumigacion", "title": "Humedad", "value": "Humedad"},
+        {
+            "id": "servicio_filtracion_humedad",
+            "title": "Filtracion/Humedad",
+            "value": "Filtracion/Humedad",
+        },
+        {"id": "servicio_pintura", "title": "Pintura", "value": "Pintura"},
+        {"id": "servicio_ruidos", "title": "Ruidos Molestos", "value": "Ruidos Molestos"},
         {"id": "servicio_otro", "title": "Otro reclamo", "value": "Otro reclamo"},
     )
     MAX_DIRECCIONES_GUARDADAS = 5
@@ -228,8 +234,12 @@ class ChatbotRules:
                 return option["value"]
         if "destap" in normalized:
             return "Destapación"
-        if "humed" in normalized:
-            return "Humedad"
+        if "filtracion" in normalized or "humed" in normalized:
+            return "Filtracion/Humedad"
+        if "pintur" in normalized or "pintar" in normalized:
+            return "Pintura"
+        if "ruido" in normalized or "molest" in normalized:
+            return "Ruidos Molestos"
         if "otro" in normalized:
             return "Otro reclamo"
         return None
@@ -418,7 +428,7 @@ Responde con el número de la opción que necesitas 📱"""
                 return ""
             return (
                 f"{mensaje_tipo}\n"
-                "Opciones: Destapación, Humedad, Otro reclamo."
+                "Opciones: Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos, Otro reclamo."
             )
 
         return ChatbotRules.get_mensaje_error_opcion()
@@ -493,29 +503,31 @@ Responde con el número de la opción que necesitas 📱"""
     @staticmethod
     def send_service_type_buttons(numero_telefono: str, body_text: str) -> bool:
         """
-        Envía botones interactivos para seleccionar el tipo de servicio.
+        Envía lista interactiva para seleccionar el tipo de reclamo.
         """
         from services.meta_whatsapp_service import meta_whatsapp_service
         import logging
 
         logger = logging.getLogger(__name__)
 
-        buttons = [
-            {"id": option["id"], "title": option["title"]}
-            for option in ChatbotRules.SERVICE_TYPE_OPTIONS
-        ]
+        rows = []
+        for option in ChatbotRules.SERVICE_TYPE_OPTIONS:
+            title = ChatbotRules._truncate_text(option["title"], 24)
+            rows.append({"id": option["id"], "title": title})
 
-        success = meta_whatsapp_service.send_interactive_buttons(
+        sections = [{"title": "Tipos de reclamo", "rows": rows}]
+        success = meta_whatsapp_service.send_interactive_list(
             numero_telefono,
             body_text=body_text,
-            buttons=buttons,
+            button_text="Elegir opción",
+            sections=sections,
         )
 
         if success:
-            logger.info(f"✅ Tipo de servicio interactivo enviado a {numero_telefono}")
+            logger.info(f"✅ Lista de reclamos enviada a {numero_telefono}")
             return True
 
-        logger.error(f"❌ Error enviando tipo de servicio a {numero_telefono}")
+        logger.error(f"❌ Error enviando lista de reclamos a {numero_telefono}")
         return False
     
     @staticmethod
@@ -888,10 +900,13 @@ Responde con el número de la opción que necesitas 📱"""
             'fecha_pago': f"📅 ¿En qué fecha realizaste el pago de las expensas?\n(Por ejemplo: {fecha_ejemplo})",
             'monto': "💰 ¿Cuál fue el monto que abonaste?\n(Podés escribir solo el número, por ejemplo: 45800)",
             'direccion': "🏠 ¿A qué dirección corresponde el pago?\n(Ejemplo: Av. Corrientes 1234)",
-            'piso_depto': "🚪 ¿Cuál es el piso y departamento?\n(Ejemplo: 3° B)\n(Puede ser piso, departamento o número de cochera)",
+            'piso_depto': "🚪¿Cual es tu unidad?\nEjemplo: 2° A, UF 14, Cochera 12.",
             'comprobante': "🧾 ¿Tenés el comprobante de pago? Podés enviarlo acá.\n(Puede ser imagen o PDF. Si no, escribí “Saltar”)",
             'comentario': "✍️ ¿Querés agregar algún comentario o aclaración?\n(Si no, escribí “Saltar”)",
-            'tipo_servicio': "¿Qué tipo de reclamo queres realizar? (Destapación, Humedad u Otro reclamo)",
+            'tipo_servicio': (
+                "¿Qué tipo de reclamo queres realizar? "
+                "(Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos u Otro reclamo)"
+            ),
             'direccion_servicio': "¿En qué lugar se presenta el problema?\n(Indicá dirección, piso y departamento)",
             'detalle_servicio': "Contame brevemente qué está pasando.",
         }
@@ -911,6 +926,18 @@ Responde con el número de la opción que necesitas 📱"""
             return direccion, None
 
         texto = direccion.strip()
+
+        # Caso UF / Unidad Funcional al final (case-insensitive)
+        uf_pattern = re.compile(
+            r"(?:,|\s)(?:uf|u\.?f\.?|unidad\s+funcional)\s*#?\s*"
+            r"(\d{1,5}\s*[°º]?\s*[a-zA-Z]{0,2})\s*$",
+            re.IGNORECASE,
+        )
+        match = uf_pattern.search(texto)
+        if match:
+            sugerido = " ".join(match.group(1).split())
+            base = texto[:match.start()].strip(" ,")
+            return base, f"UF {sugerido}".strip()
 
         # Caso con keyword explícita al final (piso/depto/dto)
         keyword_pattern = re.compile(
@@ -1663,7 +1690,7 @@ Responde con el número de la opción que necesitas 📱"""
             'direccion': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
             'piso_depto': "Indica piso/departamento o número de cochera.",
             'comprobante': "Envía una imagen o PDF del comprobante, o escribe “Saltar”.",
-            'tipo_servicio': "Seleccioná: Destapación, Humedad u Otro reclamo.",
+            'tipo_servicio': "Seleccioná: Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos u Otro reclamo.",
             'direccion_servicio': "La dirección debe tener letras y números. Solo se permiten . , # / - º °",
             'detalle_servicio': "Contanos un poco más sobre el problema (mínimo 5 caracteres).",
         }
@@ -1924,7 +1951,10 @@ Responde con el número del campo que deseas modificar."""
                 success = ChatbotRules.send_service_type_buttons(numero_telefono, mensaje_tipo)
                 if success:
                     return ""
-                return mensaje_tipo
+                return (
+                    f"{mensaje_tipo}\n"
+                    "Opciones: Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos, Otro reclamo."
+                )
             if not numero_telefono.startswith("messenger:"):
                 success = ChatbotRules.send_fecha_pago_hoy_button(numero_telefono)
                 if success:
@@ -1939,7 +1969,10 @@ Responde con el número del campo que deseas modificar."""
             success = ChatbotRules.send_service_type_buttons(numero_telefono, mensaje_tipo)
             if success:
                 return ""
-            return mensaje_tipo
+            return (
+                f"{mensaje_tipo}\n"
+                "Opciones: Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos, Otro reclamo."
+            )
 
         if campo == 'fecha_pago' and not numero_telefono.startswith("messenger:"):
             success = ChatbotRules.send_fecha_pago_hoy_button(numero_telefono)

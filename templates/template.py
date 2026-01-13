@@ -5,7 +5,7 @@ Usuario escribió: "{{mensaje_usuario}}"
 
 Las opciones disponibles son:
 1. PAGO_EXPENSAS - registrar el pago de expensas (fecha, monto, dirección, piso/departamento)
-2. SOLICITAR_SERVICIO - realizar un reclamo (destapación, humedad u otro reclamo)
+2. SOLICITAR_SERVICIO - realizar un reclamo (Destapación, Filtracion/Humedad, Pintura, Ruidos Molestos u Otro reclamo)
 3. EMERGENCIA - urgencias o emergencias que requieren atención inmediata
 
 EJEMPLOS DE CLASIFICACIÓN:
@@ -66,7 +66,7 @@ Output: {{ "{" }}"tipo_consulta": "PAGO_EXPENSAS", "fecha_pago": "12/09/2025", "
 
 # EJEMPLO 2: Solicitar reclamo
 Input: "Tengo humedad en Rivadavia 222 piso 4B"
-Output: {{ "{" }}"tipo_consulta": "SOLICITAR_SERVICIO", "tipo_servicio": "Humedad", "direccion_servicio": "Rivadavia 222 piso 4B", "detalle_servicio": "humedad"{{ "}" }}
+Output: {{ "{" }}"tipo_consulta": "SOLICITAR_SERVICIO", "tipo_servicio": "Filtracion/Humedad", "direccion_servicio": "Rivadavia 222 piso 4B", "detalle_servicio": "humedad"{{ "}" }}
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional.
 """)

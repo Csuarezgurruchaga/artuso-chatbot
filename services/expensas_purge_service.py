@@ -3,8 +3,7 @@ import json
 import logging
 import os
 import time
-from datetime import date, datetime
-from typing import Iterable, List, Optional, Sequence, Tuple
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 try:
@@ -15,16 +14,20 @@ except Exception:
     Credentials = None
 
 from services.expensas_sheet_service import (
+    EXPENSAS_CURRENT_SHEET_NAME,
+    EXPENSAS_DEFAULT_ROWS,
+    EXPENSAS_HEADERS,
+    EXPENSAS_PREVIOUS_SHEET_NAME,
     EXPENSAS_SCOPES,
-    EXPENSAS_SHEET_NAME,
     EXPENSAS_SPREADSHEET_ID,
+    apply_expensas_title_and_headers,
+    build_expensas_title,
+    previous_month_date,
 )
 
 logger = logging.getLogger(__name__)
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
-INVALID_DATE_NOTE = "Fecha invalida"
-FUTURE_DATE_NOTE = "Fecha futura"
 
 
 class ExpensasPurgeService:
@@ -33,66 +36,6 @@ class ExpensasPurgeService:
         self._gc = None
         self._last_auth_ts = 0.0
         self._auth_ttl = 60 * 30
-
-    @staticmethod
-    def _normalize_header(value: str) -> str:
-        return value.strip().lower()
-
-    @staticmethod
-    def _parse_date(value: str) -> Optional[date]:
-        if not value:
-            return None
-        try:
-            return datetime.strptime(value.strip(), "%d/%m/%Y").date()
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _previous_month(year: int, month: int) -> Tuple[int, int]:
-        if month == 1:
-            return year - 1, 12
-        return year, month - 1
-
-    @staticmethod
-    def _select_date(fecha_aviso: str, fecha_pago: str) -> Optional[date]:
-        parsed_aviso = ExpensasPurgeService._parse_date(fecha_aviso)
-        if parsed_aviso is not None:
-            return parsed_aviso
-        return ExpensasPurgeService._parse_date(fecha_pago)
-
-    @staticmethod
-    def _append_invalid_comment(existing: str) -> str:
-        existing = (existing or "").strip()
-        note_lower = INVALID_DATE_NOTE.lower()
-        if existing and note_lower in existing.lower():
-            return existing
-        if existing:
-            return f"{existing} | {INVALID_DATE_NOTE}"
-        return INVALID_DATE_NOTE
-
-    @staticmethod
-    def _append_future_comment(existing: str) -> str:
-        existing = (existing or "").strip()
-        note_lower = FUTURE_DATE_NOTE.lower()
-        if existing and note_lower in existing.lower():
-            return existing
-        if existing:
-            return f"{existing} | {FUTURE_DATE_NOTE}"
-        return FUTURE_DATE_NOTE
-
-    @staticmethod
-    def _should_keep_date(selected_date: date, now_date: date) -> bool:
-        selected_month = (selected_date.year, selected_date.month)
-        current_month = (now_date.year, now_date.month)
-        return selected_month > current_month
-
-    @staticmethod
-    def _col_to_a1(col: int) -> str:
-        result = ""
-        while col:
-            col, rem = divmod(col - 1, 26)
-            result = chr(65 + rem) + result
-        return result
 
     def _load_credentials(self):
         sa_raw = os.getenv("GOOGLE_EXPENSAS_SERVICE_ACCOUNT_JSON", "").strip()
@@ -119,131 +62,89 @@ class ExpensasPurgeService:
         self._last_auth_ts = now
         return self._gc
 
-    def _get_sheet(self):
+    def _get_spreadsheet(self):
         gc = self._get_client()
-        sh = gc.open_by_key(EXPENSAS_SPREADSHEET_ID)
-        return sh.worksheet(EXPENSAS_SHEET_NAME)
+        return gc.open_by_key(EXPENSAS_SPREADSHEET_ID)
 
-    def purge_old_rows(self) -> dict:
+    @staticmethod
+    def _count_data_rows(ws) -> int:
+        values = ws.get_all_values()
+        if not values:
+            return 0
+        return max(len(values) - 2, 0)
+
+    def _get_sheet_if_exists(self, sh, title: str):
+        try:
+            return sh.worksheet(title)
+        except Exception as exc:
+            if gspread is None:
+                raise
+            if isinstance(exc, gspread.exceptions.WorksheetNotFound):
+                return None
+            raise
+
+    def _create_sheet(self, sh, title: str):
+        return sh.add_worksheet(
+            title=title,
+            rows=EXPENSAS_DEFAULT_ROWS,
+            cols=len(EXPENSAS_HEADERS),
+        )
+
+    def rotate_monthly(self) -> dict:
         if not self.enabled:
-            logger.info("Expensas purge skipped (ENABLE_EXPENSAS_SHEET=false)")
+            logger.info("Expensas rotation skipped (ENABLE_EXPENSAS_SHEET=false)")
             return {
-                "scanned": 0,
-                "deleted": 0,
-                "kept": 0,
-                "invalid": 0,
+                "moved": 0,
+                "cleared": 0,
                 "disabled": True,
             }
 
-        ws = self._get_sheet()
-        rows = ws.get_all_values()
-        if not rows or not rows[0]:
-            raise ValueError("Missing header row in chatbot-expensas sheet")
-
-        header = rows[0]
-        header_map = {
-            self._normalize_header(value): idx
-            for idx, value in enumerate(header)
-            if value.strip()
-        }
-
-        required_headers = {
-            "fecha aviso": "FECHA AVISO",
-            "fecha de pago": "FECHA DE PAGO",
-            "comentario": "COMENTARIO",
-        }
-        missing = [
-            original
-            for key, original in required_headers.items()
-            if key not in header_map
-        ]
-        if missing:
-            raise ValueError(f"Missing required headers: {', '.join(missing)}")
-
-        idx_aviso = header_map["fecha aviso"]
-        idx_pago = header_map["fecha de pago"]
-        idx_comment = header_map["comentario"]
-
+        sh = self._get_spreadsheet()
         now_date = datetime.now(AR_TZ).date()
-        current_month = (now_date.year, now_date.month)
-        months_label = [current_month]
+        previous_date = previous_month_date(now_date)
+        current_title = build_expensas_title(EXPENSAS_CURRENT_SHEET_NAME, now_date)
+        previous_title = build_expensas_title(EXPENSAS_PREVIOUS_SHEET_NAME, previous_date)
 
-        delete_indices: List[int] = []
-        comment_updates: List[Tuple[int, str]] = []
-        invalid_count = 0
-        kept_count = 0
+        current_ws = self._get_sheet_if_exists(sh, EXPENSAS_CURRENT_SHEET_NAME)
+        previous_ws = self._get_sheet_if_exists(sh, EXPENSAS_PREVIOUS_SHEET_NAME)
 
-        for offset, row in enumerate(rows[1:], start=2):
-            fecha_aviso = row[idx_aviso] if idx_aviso < len(row) else ""
-            fecha_pago = row[idx_pago] if idx_pago < len(row) else ""
-            selected_date = self._select_date(fecha_aviso, fecha_pago)
+        moved_rows = self._count_data_rows(current_ws) if current_ws else 0
+        cleared_rows = self._count_data_rows(previous_ws) if previous_ws else 0
 
-            if selected_date is None:
-                invalid_count += 1
-                kept_count += 1
-                existing_comment = row[idx_comment] if idx_comment < len(row) else ""
-                new_comment = self._append_invalid_comment(existing_comment)
-                if new_comment != (existing_comment or ""):
-                    comment_updates.append((offset, new_comment))
-                continue
+        if previous_ws is not None:
+            sh.del_worksheet(previous_ws)
 
-            if self._should_keep_date(selected_date, now_date):
-                kept_count += 1
-                existing_comment = row[idx_comment] if idx_comment < len(row) else ""
-                new_comment = self._append_future_comment(existing_comment)
-                if new_comment != (existing_comment or ""):
-                    comment_updates.append((offset, new_comment))
-                continue
+        if current_ws is None:
+            current_ws = self._create_sheet(sh, EXPENSAS_CURRENT_SHEET_NAME)
+            apply_expensas_title_and_headers(current_ws, current_title)
 
-            delete_indices.append(offset)
+        current_ws.update_title(EXPENSAS_PREVIOUS_SHEET_NAME)
+        apply_expensas_title_and_headers(current_ws, previous_title)
 
-        if comment_updates:
-            comment_col = idx_comment + 1
-            comment_col_letter = self._col_to_a1(comment_col)
-            for row_idx, new_comment in comment_updates:
-                ws.update(
-                    f"{comment_col_letter}{row_idx}",
-                    [[new_comment]],
-                    value_input_option="RAW",
-                )
-
-        deleted_count = len(delete_indices)
-        if delete_indices:
-            for start, end in self._group_delete_ranges(delete_indices):
-                ws.delete_rows(start, end)
+        new_current_ws = self._create_sheet(sh, EXPENSAS_CURRENT_SHEET_NAME)
+        apply_expensas_title_and_headers(new_current_ws, current_title)
 
         summary = {
-            "scanned": max(len(rows) - 1, 0),
-            "deleted": deleted_count,
-            "kept": kept_count,
-            "invalid": invalid_count,
-            "months": months_label,
+            "moved": moved_rows,
+            "cleared": cleared_rows,
+            "current_tab": EXPENSAS_CURRENT_SHEET_NAME,
+            "previous_tab": EXPENSAS_PREVIOUS_SHEET_NAME,
+            "current_label": current_title,
+            "previous_label": previous_title,
         }
         logger.info(
-            "Expensas purge summary: scanned=%s deleted=%s kept=%s invalid=%s months=%s",
-            summary["scanned"],
-            summary["deleted"],
-            summary["kept"],
-            summary["invalid"],
-            summary["months"],
+            "Expensas rotation summary: moved=%s cleared=%s current=%s previous=%s labels=%s/%s",
+            summary["moved"],
+            summary["cleared"],
+            summary["current_tab"],
+            summary["previous_tab"],
+            summary["current_label"],
+            summary["previous_label"],
         )
         return summary
 
-    @staticmethod
-    def _group_delete_ranges(indices: Sequence[int]) -> Iterable[Tuple[int, int]]:
-        if not indices:
-            return []
-        sorted_indices = sorted(indices, reverse=True)
-        ranges: List[Tuple[int, int]] = []
-        start = end = sorted_indices[0]
-        for idx in sorted_indices[1:]:
-            if idx == end - 1:
-                end = idx
-            else:
-                ranges.append((end, start))
-                start = end = idx
-        ranges.append((end, start))
-        return ranges
+    def purge_old_rows(self) -> dict:
+        return self.rotate_monthly()
 
 
 expensas_purge_service = ExpensasPurgeService()

@@ -5,8 +5,9 @@ import base64
 import time
 import logging
 import unicodedata
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Iterable, Tuple, Set, Any
+from zoneinfo import ZoneInfo
 
 try:
     import gspread
@@ -23,11 +24,90 @@ EXPENSAS_SPREADSHEET_ID = os.getenv(
     "EXPENSAS_SPREADSHEET_ID",
     "1LYtHD-a9Ii8QaqLApr8P-7xKKncM-2h_C3i7D10LhSg",
 )
-EXPENSAS_SHEET_NAME = "chatbot-expensas"
+EXPENSAS_CURRENT_SHEET_NAME = "PAGOS MES ACTUAL"
+EXPENSAS_PREVIOUS_SHEET_NAME = "PAGOS MES ANTERIOR"
+EXPENSAS_HEADERS = [
+    "TIPO AVISO",
+    "FECHA AVISO",
+    "FECHA DE PAGO",
+    "MONTO",
+    "ED",
+    "DPTO",
+    "UF",
+    "COMENTARIO",
+    "COMPROBANTE",
+]
+EXPENSAS_DEFAULT_ROWS = 1000
 EXPENSAS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+SPANISH_MONTH_ABBR = {
+    1: "Ene",
+    2: "Feb",
+    3: "Mar",
+    4: "Abr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Ago",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dic",
+}
+
+
+def _column_letter(col_index: int) -> str:
+    letters = ""
+    while col_index > 0:
+        col_index, remainder = divmod(col_index - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def previous_month_date(target_date: date) -> date:
+    if target_date.month == 1:
+        return date(target_date.year - 1, 12, 1)
+    return date(target_date.year, target_date.month - 1, 1)
+
+
+def build_expensas_title(tab_name: str, target_date: date) -> str:
+    month_label = SPANISH_MONTH_ABBR.get(target_date.month)
+    if not month_label:
+        raise ValueError(f"Unsupported month index: {target_date.month}")
+    return f"{tab_name} ({month_label} {target_date.year})"
+
+
+def apply_expensas_title_and_headers(ws, title_text: str) -> None:
+    header_count = len(EXPENSAS_HEADERS)
+    end_col = _column_letter(header_count)
+    title_range = f"A1:{end_col}1"
+    header_range = f"A2:{end_col}2"
+
+    ws.update("A1", [[title_text]], value_input_option="RAW")
+    ws.update(header_range, [EXPENSAS_HEADERS], value_input_option="RAW")
+
+    try:
+        ws.merge_cells(title_range)
+    except Exception as exc:
+        logger.warning("Expensas title merge skipped: %s", exc)
+
+    try:
+        ws.format(
+            title_range,
+            {
+                "horizontalAlignment": "CENTER",
+                "textFormat": {
+                    "bold": True,
+                    "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                },
+                "backgroundColor": {"red": 0, "green": 0, "blue": 0},
+            },
+        )
+    except Exception as exc:
+        logger.warning("Expensas title format skipped: %s", exc)
 
 
 class ExpensasSheetService:
@@ -69,7 +149,7 @@ class ExpensasSheetService:
         logger.info(
             "Expensas append intento: phone=%s sheet=%s id=%s",
             conversacion.numero_telefono,
-            EXPENSAS_SHEET_NAME,
+            EXPENSAS_CURRENT_SHEET_NAME,
             EXPENSAS_SPREADSHEET_ID,
         )
 
@@ -99,7 +179,13 @@ class ExpensasSheetService:
         try:
             gc = self._get_client()
             sh = gc.open_by_key(EXPENSAS_SPREADSHEET_ID)
-            ws = sh.worksheet(EXPENSAS_SHEET_NAME)
+            now_date = datetime.now(AR_TZ).date()
+            previous_date = previous_month_date(now_date)
+            current_title = build_expensas_title(EXPENSAS_CURRENT_SHEET_NAME, now_date)
+            previous_title = build_expensas_title(EXPENSAS_PREVIOUS_SHEET_NAME, previous_date)
+
+            ws = self._ensure_tab(sh, EXPENSAS_CURRENT_SHEET_NAME, current_title)
+            self._ensure_tab(sh, EXPENSAS_PREVIOUS_SHEET_NAME, previous_title)
             ws.append_row(row, value_input_option="RAW")
             logger.info("Expensas append OK para %s", conversacion.numero_telefono)
             return True
@@ -132,11 +218,26 @@ class ExpensasSheetService:
 
     @staticmethod
     def _column_letter(col_index: int) -> str:
-        letters = ""
-        while col_index > 0:
-            col_index, remainder = divmod(col_index - 1, 26)
-            letters = chr(65 + remainder) + letters
-        return letters
+        return _column_letter(col_index)
+
+    def _get_or_create_tab(self, sh, tab_name: str):
+        try:
+            return sh.worksheet(tab_name)
+        except Exception as exc:
+            if gspread is None:
+                raise
+            if isinstance(exc, gspread.exceptions.WorksheetNotFound):
+                return sh.add_worksheet(
+                    title=tab_name,
+                    rows=EXPENSAS_DEFAULT_ROWS,
+                    cols=len(EXPENSAS_HEADERS),
+                )
+            raise
+
+    def _ensure_tab(self, sh, tab_name: str, title_text: str):
+        ws = self._get_or_create_tab(sh, tab_name)
+        apply_expensas_title_and_headers(ws, title_text)
+        return ws
 
     def _update_comprobante_link(self, ws, resp, col_index: int, url: str) -> None:
         try:

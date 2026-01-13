@@ -9,7 +9,7 @@
   - `GOOGLE_EXPENSAS_SERVICE_ACCOUNT_JSON`
 
 ## Cloud Scheduler trigger
-- Schedule: `0 2 1 * *` (1st of the month at 02:00)
+- Schedule: `0 2 25 * *` (25th of the month at 02:00)
 - Timezone: `America/Argentina/Buenos_Aires`
 - Target: Cloud Run Job execution
 

@@ -5,12 +5,12 @@
    - Load the `chatbot-expensas` sheet using existing Sheets credentials/env vars.
    - Resolve required headers case-insensitively: `FECHA AVISO`, `FECHA DE PAGO`, `COMENTARIO`.
    - Parse dates strictly as `dd/mm/yyyy`.
-   - Determine retention window using Argentina timezone (current month only).
+   - Determine the cutoff month using Argentina timezone (current month).
 2. Implement row evaluation:
    - Use `FECHA AVISO` if valid; otherwise try `FECHA DE PAGO`.
    - If both invalid, keep row and append a short note to `COMENTARIO` (avoid overwriting existing text).
-   - Keep rows in the retention window and with future dates.
-   - Mark rows older than the window for deletion.
+   - Delete rows in the current or past months.
+   - Keep future-dated rows but append a short note to `COMENTARIO`.
 3. Implement deletion:
    - Delete rows in descending order (or batch delete) to avoid index shifts.
    - Do not clear cells; actually delete rows.
@@ -25,13 +25,14 @@
 ## Phase 3: Tests
 7. Add unit tests for:
    - Strict date parsing (`dd/mm/yyyy`).
-   - Month retention logic (current month only).
+   - Deletion cutoff logic (current or past months).
    - Fallback from `FECHA AVISO` to `FECHA DE PAGO`.
    - Invalid date handling (kept + comment updated).
+   - Future-date handling (kept + comment updated).
 
 ## Phase 4: Ops/runbook
 8. Document how to configure Cloud Run Job and Cloud Scheduler trigger:
-   - Monthly schedule: 1st at 02:00 ART.
+   - Monthly schedule: 25th at 02:00 ART.
    - Required env vars: `EXPENSAS_SPREADSHEET_ID`, `ENABLE_EXPENSAS_SHEET`, `GOOGLE_EXPENSAS_SERVICE_ACCOUNT_JSON`.
 9. Provide a manual run instruction for validation.
 

@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from datetime import date, datetime
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 try:
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 INVALID_DATE_NOTE = "Fecha invalida"
+FUTURE_DATE_NOTE = "Fecha futura"
 
 
 class ExpensasPurgeService:
@@ -53,10 +54,6 @@ class ExpensasPurgeService:
         return year, month - 1
 
     @staticmethod
-    def _retention_months(now_date: date) -> Set[Tuple[int, int]]:
-        return {(now_date.year, now_date.month)}
-
-    @staticmethod
     def _select_date(fecha_aviso: str, fecha_pago: str) -> Optional[date]:
         parsed_aviso = ExpensasPurgeService._parse_date(fecha_aviso)
         if parsed_aviso is not None:
@@ -74,14 +71,20 @@ class ExpensasPurgeService:
         return INVALID_DATE_NOTE
 
     @staticmethod
-    def _should_keep_date(
-        selected_date: date,
-        now_date: date,
-        retention_months: Set[Tuple[int, int]],
-    ) -> bool:
-        if selected_date > now_date:
-            return True
-        return (selected_date.year, selected_date.month) in retention_months
+    def _append_future_comment(existing: str) -> str:
+        existing = (existing or "").strip()
+        note_lower = FUTURE_DATE_NOTE.lower()
+        if existing and note_lower in existing.lower():
+            return existing
+        if existing:
+            return f"{existing} | {FUTURE_DATE_NOTE}"
+        return FUTURE_DATE_NOTE
+
+    @staticmethod
+    def _should_keep_date(selected_date: date, now_date: date) -> bool:
+        selected_month = (selected_date.year, selected_date.month)
+        current_month = (now_date.year, now_date.month)
+        return selected_month > current_month
 
     @staticmethod
     def _col_to_a1(col: int) -> str:
@@ -162,8 +165,8 @@ class ExpensasPurgeService:
         idx_comment = header_map["comentario"]
 
         now_date = datetime.now(AR_TZ).date()
-        retention_months = self._retention_months(now_date)
-        months_label = sorted(retention_months)
+        current_month = (now_date.year, now_date.month)
+        months_label = [current_month]
 
         delete_indices: List[int] = []
         comment_updates: List[Tuple[int, str]] = []
@@ -184,8 +187,12 @@ class ExpensasPurgeService:
                     comment_updates.append((offset, new_comment))
                 continue
 
-            if self._should_keep_date(selected_date, now_date, retention_months):
+            if self._should_keep_date(selected_date, now_date):
                 kept_count += 1
+                existing_comment = row[idx_comment] if idx_comment < len(row) else ""
+                new_comment = self._append_future_comment(existing_comment)
+                if new_comment != (existing_comment or ""):
+                    comment_updates.append((offset, new_comment))
                 continue
 
             delete_indices.append(offset)

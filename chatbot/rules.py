@@ -529,7 +529,7 @@ Responde con el número de la opción que necesitas 📱"""
         logger = logging.getLogger(__name__)
         
         mensaje = (
-            "Ya me contacté con el equipo humano; en breve uno de nuestros asesores se unirá a la charla. 🙌\n"
+            "Ya me contacté con el equipo; en breve uno de nuestros asesores se unirá a la charla. 🙌\n"
             "Por favor aguardá un momento."
         )
         
@@ -2147,7 +2147,7 @@ Responde con el número del campo que deseas modificar."""
                     profile = get_active_company_profile()
                     fuera_horario = ChatbotRules._esta_fuera_de_horario(profile.get('hours', ''))
                     base = (
-                        "Ya me contacté con el equipo humano; en breve uno de nuestros asesores se unirá a la charla. 🙌\n"
+                        "Ya me contacté con el equipo; en breve uno de nuestros asesores se unirá a la charla. 🙌\n"
                         "Por favor aguardá un momento."
                     )
                     if fuera_horario:
@@ -2161,7 +2161,7 @@ Responde con el número del campo que deseas modificar."""
                 profile = get_active_company_profile()
                 fuera_horario = ChatbotRules._esta_fuera_de_horario(profile.get('hours', ''))
                 base = (
-                    "Ya me contacté con el equipo humano; en breve uno de nuestros asesores se unirá a la charla. 🙌\n"
+                    "Ya me contacté con el equipo; en breve uno de nuestros asesores se unirá a la charla. 🙌\n"
                     "Por favor aguardá un momento."
                 )
                 if fuera_horario:

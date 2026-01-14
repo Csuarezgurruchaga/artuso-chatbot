@@ -6,6 +6,7 @@ def format_phone_for_agent(phone: Optional[str]) -> Optional[str]:
     Formatea el numero para mostrarlo al agente.
     - Remueve +54 y el 9 de moviles.
     - Si es CABA (11 + 8 digitos), usa formato "11 1234-5678".
+    - Si faltan los dos digitos del area (8 digitos), antepone 11.
     """
     if not phone:
         return phone
@@ -22,6 +23,9 @@ def format_phone_for_agent(phone: Optional[str]) -> Optional[str]:
 
     if digits.startswith("9") and len(digits) > 10:
         digits = digits[1:]
+
+    if len(digits) == 8:
+        return f"11-{digits[:4]}-{digits[4:]}"
 
     if len(digits) == 10 and digits.startswith("11"):
         return f"{digits[:2]} {digits[2:6]}-{digits[6:]}"

@@ -5,7 +5,7 @@ os.environ.setdefault("META_WA_ACCESS_TOKEN", "test_token")
 os.environ.setdefault("META_WA_PHONE_NUMBER_ID", "123456789")
 os.environ.setdefault("META_WA_APP_SECRET", "test_secret")
 os.environ.setdefault("META_WA_VERIFY_TOKEN", "test_verify_token")
-os.environ.setdefault("AGENT_WHATSAPP_NUMBER", "+5491111111111")
+os.environ.setdefault("HANDOFF_WHATSAPP_NUMBER", "+5491111111111")
 os.environ.setdefault("COMPANY_PROFILE", "administracion-artuso")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -23,7 +23,7 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("META_WA_PHONE_NUMBER_ID", "123456789")
     monkeypatch.setenv("META_WA_APP_SECRET", "test_secret")
     monkeypatch.setenv("META_WA_VERIFY_TOKEN", "test_verify_token")
-    monkeypatch.setenv("AGENT_WHATSAPP_NUMBER", "+5491135722871")
+    monkeypatch.setenv("HANDOFF_WHATSAPP_NUMBER", "+5491135722871")
 
 
 @pytest.fixture(autouse=True)

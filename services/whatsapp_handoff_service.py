@@ -34,13 +34,17 @@ class WhatsAppHandoffService:
     """Servicio para manejar handoffs a agentes humanos vía WhatsApp usando Meta Cloud API."""
 
     def __init__(self):
-        self.agent_whatsapp_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+        self.agent_whatsapp_number = os.getenv("HANDOFF_WHATSAPP_NUMBER", "")
         if not self.agent_whatsapp_number:
-            raise ValueError("AGENT_WHATSAPP_NUMBER es requerido para el handoff a WhatsApp")
+            raise ValueError("HANDOFF_WHATSAPP_NUMBER es requerido para el handoff a WhatsApp")
         
         # Asegurar que el número tenga el formato correcto
         if not self.agent_whatsapp_number.startswith('+'):
             self.agent_whatsapp_number = f'+{self.agent_whatsapp_number}'
+
+        self.emergency_whatsapp_number = os.getenv("HANDOFF_EMERGENCY_WHATSAPP_NUMBER", "")
+        if self.emergency_whatsapp_number and not self.emergency_whatsapp_number.startswith("+"):
+            self.emergency_whatsapp_number = f"+{self.emergency_whatsapp_number}"
         
         logger.info(f"WhatsApp Handoff Service inicializado (Meta API). Agente: {self.agent_whatsapp_number}")
 
@@ -206,9 +210,11 @@ class WhatsAppHandoffService:
         """
         # Normalizar números para comparación
         normalized_from = from_number.replace('whatsapp:', '').replace('+', '')
-        normalized_agent = self.agent_whatsapp_number.replace('+', '')
+        normalized_agents = {self.agent_whatsapp_number.replace('+', '')}
+        if self.emergency_whatsapp_number:
+            normalized_agents.add(self.emergency_whatsapp_number.replace('+', ''))
         
-        return normalized_from == normalized_agent
+        return normalized_from in normalized_agents
 
     def is_resolution_command(self, message: str) -> bool:
         """

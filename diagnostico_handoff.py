@@ -19,12 +19,15 @@ def verificar_variables_entorno():
     print("=" * 50)
     
     variables_requeridas = [
-        "AGENT_WHATSAPP_NUMBER",
+        "HANDOFF_WHATSAPP_NUMBER",
         "META_WA_ACCESS_TOKEN",
         "META_WA_PHONE_NUMBER_ID",
         "META_WA_APP_SECRET",
         "META_WA_VERIFY_TOKEN",
         "AGENT_API_TOKEN"
+    ]
+    variables_opcionales = [
+        "HANDOFF_EMERGENCY_WHATSAPP_NUMBER",
     ]
     
     todas_configuradas = True
@@ -41,6 +44,13 @@ def verificar_variables_entorno():
         else:
             print(f"❌ {var}: NO CONFIGURADO")
             todas_configuradas = False
+
+    for var in variables_opcionales:
+        valor = os.getenv(var)
+        if valor:
+            print(f"✅ {var}: {valor}")
+        else:
+            print(f"⚠️  {var}: NO CONFIGURADO (fallback al estándar)")
     
     print()
     return todas_configuradas
@@ -50,10 +60,10 @@ def verificar_formato_numero_agente():
     print("📱 VERIFICANDO FORMATO DEL NÚMERO DEL AGENTE")
     print("=" * 50)
     
-    agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+    agent_number = os.getenv("HANDOFF_WHATSAPP_NUMBER", "")
     
     if not agent_number:
-        print("❌ AGENT_WHATSAPP_NUMBER no está configurado")
+        print("❌ HANDOFF_WHATSAPP_NUMBER no está configurado")
         return False
     
     # Verificar formato
@@ -78,9 +88,9 @@ def test_envio_mensaje_directo():
     try:
         from services.meta_whatsapp_service import meta_whatsapp_service
         
-        agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+        agent_number = os.getenv("HANDOFF_WHATSAPP_NUMBER", "")
         if not agent_number:
-            print("❌ AGENT_WHATSAPP_NUMBER no configurado")
+            print("❌ HANDOFF_WHATSAPP_NUMBER no configurado")
             return False
         
         test_message = "🧪 TEST DIRECTO - Si recibes esto, el sistema funciona ✅"
@@ -218,7 +228,7 @@ def generar_reporte_diagnostico():
         print("• Configura todas las variables de entorno en Railway")
     
     if not resultados["formato_numero"]:
-        print("• Verifica que AGENT_WHATSAPP_NUMBER tenga formato +5491135722871")
+        print("• Verifica que HANDOFF_WHATSAPP_NUMBER tenga formato +5491135722871")
     
     if not resultados["envio_directo"]:
         print("• El problema está en el envío de mensajes - revisa logs de Meta Cloud API")

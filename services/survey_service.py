@@ -116,7 +116,7 @@ class SurveyService:
                 logger.info(
                     "survey_started client_phone=%s agent_phone=%s state=%s",
                     client_phone,
-                    os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                    os.getenv("HANDOFF_WHATSAPP_NUMBER", ""),
                     conversation.estado,
                 )
             else:
@@ -159,7 +159,7 @@ class SurveyService:
                 logger.info(
                     "survey_invalid client_phone=%s agent_phone=%s state=%s question=%s attempts=%s",
                     client_phone,
-                    os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                    os.getenv("HANDOFF_WHATSAPP_NUMBER", ""),
                     conversation.estado,
                     current_question,
                     attempts,
@@ -171,7 +171,7 @@ class SurveyService:
                     logger.info(
                         "survey_aborted_invalids client_phone=%s agent_phone=%s state=%s question=%s",
                         client_phone,
-                        os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                        os.getenv("HANDOFF_WHATSAPP_NUMBER", ""),
                         conversation.estado,
                         current_question,
                     )
@@ -190,7 +190,7 @@ class SurveyService:
                 logger.info(
                     "survey_completed client_phone=%s agent_phone=%s state=%s",
                     client_phone,
-                    os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                    os.getenv("HANDOFF_WHATSAPP_NUMBER", ""),
                     conversation.estado,
                 )
                 return True, self._build_completion_message()

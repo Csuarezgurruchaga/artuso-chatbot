@@ -15,11 +15,11 @@ def diagnosticar_problema_inicio():
     print("=" * 50)
     
     # 1. Verificar configuración de agente
-    agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
-    print(f"1. AGENT_WHATSAPP_NUMBER: {agent_number}")
+    agent_number = os.getenv("HANDOFF_WHATSAPP_NUMBER", "")
+    print(f"1. HANDOFF_WHATSAPP_NUMBER: {agent_number}")
     
     if not agent_number:
-        print("❌ PROBLEMA: AGENT_WHATSAPP_NUMBER no está configurado")
+        print("❌ PROBLEMA: HANDOFF_WHATSAPP_NUMBER no está configurado")
         return
     
     # 2. Verificar si el número de prueba es el mismo que el agente
@@ -28,12 +28,12 @@ def diagnosticar_problema_inicio():
     
     if test_number == agent_number:
         print("❌ PROBLEMA IDENTIFICADO:")
-        print("   Estás probando desde el mismo número configurado como AGENT_WHATSAPP_NUMBER")
+        print("   Estás probando desde el mismo número configurado como HANDOFF_WHATSAPP_NUMBER")
         print("   El bot piensa que eres el agente, no el cliente")
         print()
         print("🔧 SOLUCIONES:")
         print("   1. Usar un número diferente para probar (recomendado)")
-        print("   2. Cambiar temporalmente AGENT_WHATSAPP_NUMBER")
+        print("   2. Cambiar temporalmente HANDOFF_WHATSAPP_NUMBER")
         print("   3. Usar los endpoints de debug que agregamos")
         return
     
@@ -118,7 +118,7 @@ def main():
     print("=" * 25)
     print("El bot está detectando tu mensaje como si viniera del agente")
     print("porque estás usando el mismo número configurado como")
-    print("AGENT_WHATSAPP_NUMBER. Por eso responde con mensajes")
+    print("HANDOFF_WHATSAPP_NUMBER. Por eso responde con mensajes")
     print("de sistema en lugar del saludo inicial.")
     print()
     print("✅ SOLUCIÓN MÁS RÁPIDA:")

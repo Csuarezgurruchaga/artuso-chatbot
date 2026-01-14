@@ -50,6 +50,32 @@ COMPROBANTE_MIME_EXT = {
 }
 
 RATE_LIMIT_GREETINGS = {"hola", "hi", "hello", "inicio", "empezar"}
+HANDOFF_STANDARD_NUMBER_ENV = "HANDOFF_WHATSAPP_NUMBER"
+HANDOFF_EMERGENCY_NUMBER_ENV = "HANDOFF_EMERGENCY_WHATSAPP_NUMBER"
+
+
+def _select_handoff_agent_number(conversacion: ConversacionData) -> tuple[str, str]:
+    standard_number = os.getenv(HANDOFF_STANDARD_NUMBER_ENV, "")
+    emergency_number = os.getenv(HANDOFF_EMERGENCY_NUMBER_ENV, "")
+    is_emergency = conversacion and conversacion.tipo_consulta == TipoConsulta.EMERGENCIA
+
+    if is_emergency and emergency_number:
+        return emergency_number, "emergency"
+    if is_emergency:
+        return standard_number, "standard_fallback"
+    return standard_number, "standard"
+
+
+def _get_handoff_agent_number(conversacion: ConversacionData) -> str:
+    agent_number, route = _select_handoff_agent_number(conversacion)
+    logger.info(
+        "handoff_route_selected client_phone=%s agent_phone=%s route=%s tipo=%s",
+        conversacion.numero_telefono,
+        agent_number,
+        route,
+        conversacion.tipo_consulta,
+    )
+    return agent_number
 
 
 def _is_greeting_message(message_text: str) -> bool:
@@ -159,7 +185,7 @@ def _notify_handoff_activated(conversacion: ConversacionData, position: int, tot
     """
     Notifica al agente sobre un handoff activo usando template si es posible.
     """
-    agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+    agent_number = _get_handoff_agent_number(conversacion)
     if not agent_number:
         return False
 
@@ -239,9 +265,6 @@ def _maybe_notify_handoff(numero_telefono: str) -> None:
             position = conversation_manager.add_to_handoff_queue(numero_telefono)
             total = conversation_manager.get_queue_size()
 
-            # Determinar tipo de notificación
-            agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
-
             if position == 1:
                 # Es el activo, notificar como activado
                 success = _notify_handoff_activated(conversacion_post, position, total)
@@ -256,6 +279,7 @@ def _maybe_notify_handoff(numero_telefono: str) -> None:
                     total,
                     active_conv,
                 )
+                agent_number = _get_handoff_agent_number(conversacion_post)
                 success = meta_whatsapp_service.send_text_message(agent_number, notification)
 
             if success:
@@ -340,7 +364,7 @@ async def handoff_ttl_sweep(token: str = Form(...)):
                         logger.info(
                             "survey_timeout client_phone=%s agent_phone=%s state=%s reason=offer_timeout",
                             conv.numero_telefono,
-                            os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                            os.getenv(HANDOFF_STANDARD_NUMBER_ENV, ""),
                             conv.estado,
                         )
                         logger.info(f"⏱️ Timeout de oferta de encuesta para {conv.numero_telefono}")
@@ -349,7 +373,7 @@ async def handoff_ttl_sweep(token: str = Form(...)):
                         logger.info(
                             "survey_timeout client_phone=%s agent_phone=%s state=%s reason=survey_incomplete",
                             conv.numero_telefono,
-                            os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                            os.getenv(HANDOFF_STANDARD_NUMBER_ENV, ""),
                             conv.estado,
                         )
                     elif close_reason == "Pregunta de resolución sin respuesta":
@@ -752,7 +776,7 @@ async def webhook_whatsapp_receive(request: Request):
                     logger.info(
                         "survey_accepted client_phone=%s agent_phone=%s state=%s",
                         numero_telefono,
-                        os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                        os.getenv(HANDOFF_STANDARD_NUMBER_ENV, ""),
                         conversacion_actual.estado,
                     )
                     
@@ -785,7 +809,7 @@ async def webhook_whatsapp_receive(request: Request):
                     logger.info(
                         "survey_declined client_phone=%s agent_phone=%s state=%s",
                         numero_telefono,
-                        os.getenv("AGENT_WHATSAPP_NUMBER", ""),
+                        os.getenv(HANDOFF_STANDARD_NUMBER_ENV, ""),
                         conversacion_actual.estado,
                     )
                     
@@ -885,7 +909,7 @@ async def webhook_whatsapp_receive(request: Request):
                         )
                     else:
                         # Por ahora, enviar notificación simple
-                        agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+                        agent_number = _get_handoff_agent_number(conversacion_actual)
                         if agent_number:
                             numero_display = format_phone_for_agent(numero_telefono)
                             notification = f"""🔄 *Solicitud de handoff*
@@ -921,7 +945,7 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
                         is_active,
                         position
                     )
-                    agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+                    agent_number = _get_handoff_agent_number(conversacion_actual)
                     meta_whatsapp_service.send_text_message(agent_number, notification)
                     
                     # Si no es activo, agregar recordatorio
@@ -1473,9 +1497,9 @@ async def debug_test_handoff(token: str = Form(...)):
     
     try:
         # Obtener número del agente
-        agent_number = os.getenv("AGENT_WHATSAPP_NUMBER", "")
+        agent_number = os.getenv(HANDOFF_STANDARD_NUMBER_ENV, "")
         if not agent_number:
-            return {"error": "AGENT_WHATSAPP_NUMBER no configurado"}
+            return {"error": "HANDOFF_WHATSAPP_NUMBER no configurado"}
         
         # Mensaje de prueba
         from datetime import datetime
@@ -1546,7 +1570,7 @@ async def debug_test_handoff_full(token: str = Form(...)):
             "handoff_notified": conversacion.handoff_notified,
             "bot_response": respuesta,
             "conversation_state": conversacion.estado,
-            "agent_number": os.getenv("AGENT_WHATSAPP_NUMBER", "")
+            "agent_number": os.getenv(HANDOFF_STANDARD_NUMBER_ENV, "")
         }
         
     except Exception as e:

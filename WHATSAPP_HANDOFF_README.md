@@ -10,7 +10,8 @@ El sistema de handoff usa la WhatsApp Cloud API de Meta. Los agentes humanos rec
 
 ```bash
 # WhatsApp Agent Configuration
-AGENT_WHATSAPP_NUMBER=+5491135722871  # Número del agente (formato internacional)
+HANDOFF_WHATSAPP_NUMBER=+5491135722871  # Número del agente (formato internacional)
+HANDOFF_EMERGENCY_WHATSAPP_NUMBER=+5491130000000  # Opcional (emergencias)
 
 # Meta WhatsApp Cloud API
 META_WA_ACCESS_TOKEN=<token_de_acceso>
@@ -164,7 +165,7 @@ The system has been completely migrated from Slack to WhatsApp:
 
 To test the handoff system:
 
-1. Set up the `AGENT_WHATSAPP_NUMBER` environment variable
+1. Set up the `HANDOFF_WHATSAPP_NUMBER` environment variable (and `HANDOFF_EMERGENCY_WHATSAPP_NUMBER` if needed)
 2. Send a message to the bot requesting human assistance
 3. Verify the agent receives the notification
 4. Have the agent respond to test bidirectional communication
@@ -175,12 +176,12 @@ To test the handoff system:
 ### Common Issues
 
 1. **Agent not receiving notifications**
-   - Check `AGENT_WHATSAPP_NUMBER` is set correctly
+   - Check `HANDOFF_WHATSAPP_NUMBER` is set correctly
    - Verify Meta credentials (`META_WA_*`) are valid
    - Check logs for error messages
 
 2. **Agent messages not reaching clients**
-   - Verify agent's WhatsApp number matches `AGENT_WHATSAPP_NUMBER`
+   - Verify agent's WhatsApp number matches `HANDOFF_WHATSAPP_NUMBER`
    - Check que el webhook de Meta esté verificado y activo
    - Review error logs
 

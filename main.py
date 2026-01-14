@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import PlainTextResponse
 import logging
 from typing import Optional
-from chatbot.rules import ChatbotRules
+from chatbot.rules import ChatbotRules, RATE_LIMIT_MESSAGE
 from chatbot.states import conversation_manager
 from chatbot.models import EstadoConversacion, ConversacionData, TipoConsulta
 from services.meta_whatsapp_service import meta_whatsapp_service
@@ -22,6 +22,7 @@ from services.clients_sheet_service import clients_sheet_service
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
 from services.phone_display import format_phone_for_agent
+from services.rate_limit_service import rate_limit_service
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +48,33 @@ COMPROBANTE_MIME_EXT = {
     "image/heif": ".heif",
     "application/pdf": ".pdf",
 }
+
+RATE_LIMIT_GREETINGS = {"hola", "hi", "hello", "inicio", "empezar"}
+
+
+def _is_greeting_message(message_text: str) -> bool:
+    if not message_text:
+        return False
+    return message_text.strip().lower() in RATE_LIMIT_GREETINGS
+
+
+def _should_count_rate_limit(
+    conversacion: ConversacionData,
+    mensaje_usuario: str,
+    is_whatsapp: bool,
+    was_finalized_recently: bool,
+) -> bool:
+    if not is_whatsapp:
+        return False
+    if was_finalized_recently:
+        return False
+    if conversacion.atendido_por_humano or conversacion.estado == EstadoConversacion.ATENDIDO_POR_HUMANO:
+        return False
+    if ChatbotRules._detectar_volver_menu(mensaje_usuario or ""):
+        return False
+    if _is_greeting_message(mensaje_usuario):
+        return True
+    return conversacion.estado == EstadoConversacion.INICIO
 
 
 def get_messaging_service(user_id: str):
@@ -459,6 +487,26 @@ async def webhook_whatsapp_receive(request: Request):
                 await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
                 return PlainTextResponse("", status_code=200)
 
+            conversacion_actual = conversation_manager.get_conversacion(numero_telefono)
+            was_finalized_recently = conversation_manager.was_finalized_recently(numero_telefono)
+
+            if _should_count_rate_limit(
+                conversacion_actual,
+                mensaje_usuario,
+                is_whatsapp,
+                was_finalized_recently,
+            ):
+                allowed, count, date_key = rate_limit_service.check_and_increment(numero_telefono)
+                if not allowed:
+                    logger.info(
+                        "rate_limit_block phone=%s date=%s count=%s",
+                        numero_telefono,
+                        date_key,
+                        count,
+                    )
+                    send_message(numero_telefono, RATE_LIMIT_MESSAGE)
+                    return PlainTextResponse("", status_code=200)
+
             # Manejar botones/listas interactivos nativos de Meta
             if message_type == 'interactive':
                 if not mensaje_usuario:
@@ -663,7 +711,7 @@ async def webhook_whatsapp_receive(request: Request):
                 return PlainTextResponse("", status_code=200)
             
             # Manejar mensajes posteriores a cierre reciente (agradecimientos)
-            if conversation_manager.was_finalized_recently(numero_telefono):
+            if was_finalized_recently:
                 if ChatbotRules.es_mensaje_agradecimiento(mensaje_usuario):
                     mensaje_gracias = ChatbotRules.get_mensaje_post_finalizado_gracias()
                     if mensaje_gracias:
@@ -672,9 +720,7 @@ async def webhook_whatsapp_receive(request: Request):
                     return PlainTextResponse("", status_code=200)
                 else:
                     conversation_manager.clear_recently_finalized(numero_telefono)
-            
-            # Obtener conversación actual
-            conversacion_actual = conversation_manager.get_conversacion(numero_telefono)
+
             try:
                 siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
                 logger.info(

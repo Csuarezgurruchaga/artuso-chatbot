@@ -8,6 +8,11 @@ import hashlib
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from services.rate_limit_service import rate_limit_service
 
 
 # Mock de las variables de entorno antes de importar
@@ -19,6 +24,15 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("META_WA_APP_SECRET", "test_secret")
     monkeypatch.setenv("META_WA_VERIFY_TOKEN", "test_verify_token")
     monkeypatch.setenv("AGENT_WHATSAPP_NUMBER", "+5491135722871")
+
+
+@pytest.fixture(autouse=True)
+def allow_rate_limit(monkeypatch):
+    monkeypatch.setattr(
+        rate_limit_service,
+        "check_and_increment",
+        lambda *args, **kwargs: (True, 0, "2025-01-01"),
+    )
 
 
 def _build_message_payload(text_body: str, from_number: str = "5491198765432"):
@@ -247,7 +261,7 @@ def test_meta_whatsapp_service_send_text():
     
     service = MetaWhatsAppService()
     
-    with patch('requests.post') as mock_post:
+    with patch.object(service._session, "post") as mock_post:
         # Mock de respuesta exitosa de Meta API
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -358,7 +372,7 @@ def test_gracias_post_finalizacion_no_reinicia():
     from chatbot.rules import ChatbotRules
     
     client = TestClient(app)
-    numero = "5491198765432"
+    numero = "+5491198765432"
     conversation_manager.mark_recently_finalized(numero)
     
     payload = _build_message_payload("Gracias!!", from_number=numero)
@@ -379,7 +393,7 @@ def test_nueva_consulta_post_finalizacion_reinicia():
     from chatbot.states import conversation_manager
     
     client = TestClient(app)
-    numero = "549117770000"
+    numero = "+549117770000"
     conversation_manager.mark_recently_finalized(numero)
     
     payload = _build_message_payload("Necesito otra cosa", from_number=numero)

@@ -11,7 +11,6 @@ from decimal import Decimal, InvalidOperation
 from services.error_reporter import error_reporter, ErrorTrigger
 from services.metrics_service import metrics_service
 from services.clients_sheet_service import clients_sheet_service
-from services.rate_limit_service import rate_limit_service
 
 POST_FINALIZADO_WINDOW_SECONDS = int(os.getenv("POST_FINALIZADO_WINDOW_SECONDS", "120"))
 POST_FINALIZADO_ACK_MESSAGE = os.getenv(
@@ -333,16 +332,6 @@ Responde con el número de la opción que necesitas 📱"""
 
         import logging
         logger = logging.getLogger(__name__)
-
-        allowed, count, date_key = rate_limit_service.check_and_increment(numero_telefono)
-        if not allowed:
-            logger.info(
-                "rate_limit_block phone=%s date=%s count=%s",
-                numero_telefono,
-                date_key,
-                count,
-            )
-            return RATE_LIMIT_MESSAGE
 
         conversation_manager.set_tipo_consulta(numero_telefono, tipo_consulta)
         conversation_manager.clear_datos_temporales(numero_telefono)

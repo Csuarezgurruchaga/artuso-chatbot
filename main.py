@@ -181,13 +181,10 @@ def _persist_client_address(conversacion: ConversacionData) -> None:
         )
 
 
-def _notify_handoff_activated(conversacion: ConversacionData, position: int, total: int) -> bool:
-    """
-    Notifica al agente sobre un handoff activo usando template si es posible.
-    """
+def _send_handoff_template(conversacion: ConversacionData) -> tuple[bool, str]:
     agent_number = _get_handoff_agent_number(conversacion)
     if not agent_number:
-        return False
+        return False, ""
 
     nombre = conversacion.nombre_usuario or "Sin nombre"
     mensaje_contexto = conversacion.mensaje_handoff_contexto or "N/A"
@@ -203,8 +200,18 @@ def _notify_handoff_activated(conversacion: ConversacionData, position: int, tot
         [nombre, numero_display, mensaje_contexto],
     )
 
+    return template_sent, agent_number
+
+
+def _notify_handoff_activated(conversacion: ConversacionData, position: int, total: int) -> bool:
+    """
+    Notifica al agente sobre un handoff activo usando template si es posible.
+    """
+    template_sent, agent_number = _send_handoff_template(conversacion)
     if template_sent:
         return True
+    if not agent_number:
+        return False
 
     notification = _format_handoff_activated_notification(conversacion, position, total)
     return meta_whatsapp_service.send_text_message(agent_number, notification)
@@ -279,8 +286,11 @@ def _maybe_notify_handoff(numero_telefono: str) -> None:
                     total,
                     active_conv,
                 )
-                agent_number = _get_handoff_agent_number(conversacion_post)
-                success = meta_whatsapp_service.send_text_message(agent_number, notification)
+                template_sent, agent_number = _send_handoff_template(conversacion_post)
+                queue_sent = False
+                if agent_number:
+                    queue_sent = meta_whatsapp_service.send_text_message(agent_number, notification)
+                success = template_sent or queue_sent
 
             if success:
                 conversacion_post.handoff_notified = True
@@ -909,7 +919,7 @@ async def webhook_whatsapp_receive(request: Request):
                         )
                     else:
                         # Por ahora, enviar notificación simple
-                        agent_number = _get_handoff_agent_number(conversacion_actual)
+                        template_sent, agent_number = _send_handoff_template(conversacion_actual)
                         if agent_number:
                             numero_display = format_phone_for_agent(numero_telefono)
                             notification = f"""🔄 *Solicitud de handoff*
@@ -923,9 +933,10 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
 • Responde en este mismo chat y enviaremos tu mensaje al cliente automáticamente.
 • No es necesario escribirle al número del cliente.
 • Para cerrar la conversación, responde con: /resuelto"""
-                            success = meta_whatsapp_service.send_text_message(agent_number, notification)
+                            text_sent = meta_whatsapp_service.send_text_message(agent_number, notification)
+                            success = template_sent or text_sent
                         else:
-                            success = False
+                            success = template_sent
 
                     if success:
                         conversacion_actual.handoff_notified = True

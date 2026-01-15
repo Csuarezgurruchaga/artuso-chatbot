@@ -550,6 +550,21 @@ async def webhook_whatsapp_receive(request: Request):
                     await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
                     return PlainTextResponse("", status_code=200)
 
+                handled, reply = optin_service.handle_inbound_message(
+                    numero_telefono,
+                    mensaje_usuario,
+                )
+                if handled:
+                    if reply:
+                        send_message(numero_telefono, reply)
+                    return PlainTextResponse("", status_code=200)
+
+                send_message(
+                    numero_telefono,
+                    "Para habilitar mensajes de handoff, usa /optin.",
+                )
+                return PlainTextResponse("", status_code=200)
+
             from services.optin_service import optin_service
             handled, reply = optin_service.handle_inbound_message(numero_telefono, mensaje_usuario)
             if handled:

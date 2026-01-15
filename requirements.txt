@@ -64,7 +64,7 @@ pinecone==7.3.0
 pinecone-plugin-assistant==1.8.0
 pinecone-plugin-interface==0.0.7
 propcache==0.3.2
-protobuf==6.32.0
+protobuf==4.25.3
 pydantic==2.11.7
 pydantic_core==2.33.2
 pydash==7.0.7

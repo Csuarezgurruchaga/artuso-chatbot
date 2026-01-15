@@ -537,8 +537,18 @@ async def webhook_whatsapp_receive(request: Request):
 
             # Verificar si el mensaje viene del agente humano
             if whatsapp_handoff_service.is_agent_message(numero_telefono):
-                await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
-                return PlainTextResponse("", status_code=200)
+                from services.agent_command_service import agent_command_service
+                if agent_command_service.is_command(mensaje_usuario or ""):
+                    command = agent_command_service.parse_command(mensaje_usuario or "")
+                    if command == "optin":
+                        await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
+                        return PlainTextResponse("", status_code=200)
+
+                from services.optin_service import optin_service
+                channel, identifier = optin_service.resolve_identifier(numero_telefono)
+                if optin_service.is_opted_in(channel, identifier):
+                    await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
+                    return PlainTextResponse("", status_code=200)
 
             from services.optin_service import optin_service
             handled, reply = optin_service.handle_inbound_message(numero_telefono, mensaje_usuario)

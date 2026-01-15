@@ -88,7 +88,7 @@ class RateLimitService:
                 return idx, row
         return None, None
 
-    def check_and_increment(self, telefono: str, limit: int = 20) -> Tuple[bool, int, str]:
+    def check_and_increment(self, telefono: str, limit: int = 10) -> Tuple[bool, int, str]:
         date_key = self._today_key()
         if not self.enabled:
             return True, 0, date_key

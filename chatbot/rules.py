@@ -19,7 +19,7 @@ POST_FINALIZADO_ACK_MESSAGE = os.getenv(
 )
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 RATE_LIMIT_MESSAGE = (
-    "Por hoy ya alcanzaste el máximo de 20 interacciones 😊 "
+    "Por hoy ya alcanzaste el máximo de 10 interacciones 😊 "
     "Mañana podés volver a usar el servicio sin problema!"
 )
 

@@ -126,6 +126,18 @@ class MetaWhatsAppService:
             bool: True si se envió exitosamente
         """
         try:
+            from services.optin_service import optin_service
+
+            channel, identifier = optin_service.resolve_identifier(to_number)
+            if not optin_service.is_opted_in(channel, identifier):
+                logger.warning(
+                    "optin_blocked_template channel=%s id=%s template=%s",
+                    channel,
+                    identifier,
+                    template_name,
+                )
+                return False
+
             normalized_number = self._normalize_phone_number(to_number)
 
             url = f"{self.base_url}/{self.phone_number_id}/messages"

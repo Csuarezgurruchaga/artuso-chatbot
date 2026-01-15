@@ -213,6 +213,16 @@ def _notify_handoff_activated(conversacion: ConversacionData, position: int, tot
     if not agent_number:
         return False
 
+    from services.optin_service import optin_service
+    channel, identifier = optin_service.resolve_identifier(agent_number)
+    if not optin_service.is_opted_in(channel, identifier):
+        logger.warning(
+            "optin_blocked_handoff channel=%s id=%s",
+            channel,
+            identifier,
+        )
+        return False
+
     notification = _format_handoff_activated_notification(conversacion, position, total)
     return meta_whatsapp_service.send_text_message(agent_number, notification)
 
@@ -289,7 +299,16 @@ def _maybe_notify_handoff(numero_telefono: str) -> None:
                 template_sent, agent_number = _send_handoff_template(conversacion_post)
                 queue_sent = False
                 if agent_number:
-                    queue_sent = meta_whatsapp_service.send_text_message(agent_number, notification)
+                    from services.optin_service import optin_service
+                    channel, identifier = optin_service.resolve_identifier(agent_number)
+                    if not optin_service.is_opted_in(channel, identifier):
+                        logger.warning(
+                            "optin_blocked_handoff_queue channel=%s id=%s",
+                            channel,
+                            identifier,
+                        )
+                    else:
+                        queue_sent = meta_whatsapp_service.send_text_message(agent_number, notification)
                 success = template_sent or queue_sent
 
             if success:
@@ -519,6 +538,13 @@ async def webhook_whatsapp_receive(request: Request):
             # Verificar si el mensaje viene del agente humano
             if whatsapp_handoff_service.is_agent_message(numero_telefono):
                 await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
+                return PlainTextResponse("", status_code=200)
+
+            from services.optin_service import optin_service
+            handled, reply = optin_service.handle_inbound_message(numero_telefono, mensaje_usuario)
+            if handled:
+                if reply:
+                    send_message(numero_telefono, reply)
                 return PlainTextResponse("", status_code=200)
 
             conversacion_actual = conversation_manager.get_conversacion(numero_telefono)
@@ -933,7 +959,17 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
 • Responde en este mismo chat y enviaremos tu mensaje al cliente automáticamente.
 • No es necesario escribirle al número del cliente.
 • Para cerrar la conversación, responde con: /resuelto"""
-                            text_sent = meta_whatsapp_service.send_text_message(agent_number, notification)
+                            from services.optin_service import optin_service
+                            channel, identifier = optin_service.resolve_identifier(agent_number)
+                            if not optin_service.is_opted_in(channel, identifier):
+                                logger.warning(
+                                    "optin_blocked_handoff_notification channel=%s id=%s",
+                                    channel,
+                                    identifier,
+                                )
+                                text_sent = False
+                            else:
+                                text_sent = meta_whatsapp_service.send_text_message(agent_number, notification)
                             success = template_sent or text_sent
                         else:
                             success = template_sent
@@ -1456,8 +1492,21 @@ async def handle_agent_message(agent_phone: str, message: str, profile_name: str
                 response = agent_command_service.execute_historial_command(agent_phone)
                 meta_whatsapp_service.send_text_message(agent_phone, response)
                 return
+            
+            elif command == 'optin':
+                response = agent_command_service.execute_optin_command(agent_phone)
+                if response:
+                    meta_whatsapp_service.send_text_message(agent_phone, response)
+                return
 
         # PASO 2: Es un mensaje normal, enviar a conversación activa
+        from services.optin_service import optin_service
+        handled, reply = optin_service.handle_inbound_message(agent_phone, message)
+        if handled:
+            if reply:
+                meta_whatsapp_service.send_text_message(agent_phone, reply)
+            return
+
         active_phone = conversation_manager.get_active_handoff()
 
         if not active_phone:

@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 from chatbot.states import conversation_manager
 from services.meta_whatsapp_service import meta_whatsapp_service
@@ -22,6 +23,8 @@ def _get_client_messaging_service(client_id: str):
 class AgentCommandService:
     """Servicio para gestionar comandos del agente en el sistema de cola de handoffs."""
 
+    _OPTIN_COMMAND = os.getenv("OPTIN_COMMAND", "optin").strip().lower()
+
     # Comandos reconocidos y sus alias
     COMMAND_ALIASES = {
         'done': ['done', 'd', 'resuelto', 'r', 'resolved', 'finalizar', 'cerrar'],
@@ -29,7 +32,8 @@ class AgentCommandService:
         'queue': ['queue', 'q', 'cola', 'list', 'lista'],
         'help': ['help', 'h', 'ayuda', '?', 'comandos'],
         'active': ['active', 'current', 'a', 'activo', 'actual'],
-        'historial': ['historial', 'history', 'contexto', 'context', 'chat', 'recap', 'mensajes', 'messages']
+        'historial': ['historial', 'history', 'contexto', 'context', 'chat', 'recap', 'mensajes', 'messages'],
+        'optin': [_OPTIN_COMMAND] if _OPTIN_COMMAND else ['optin'],
     }
 
     def is_command(self, message: str) -> bool:
@@ -504,6 +508,28 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
         except Exception as e:
             logger.error(f"Error ejecutando comando /historial: {e}")
             return f"❌ Error obteniendo historial: {str(e)}"
+
+    def execute_optin_command(self, agent_phone: str) -> str:
+        """
+        Ejecuta el comando /optin: envia el prompt de consentimiento al agente.
+
+        Args:
+            agent_phone: Número del agente (para logs)
+
+        Returns:
+            str: Mensaje de opt-in a enviar al agente
+        """
+        try:
+            from services.optin_service import optin_service
+
+            prompt = optin_service.start_optin("whatsapp", agent_phone)
+            if not prompt:
+                return "❌ Opt-in deshabilitado o no disponible."
+            logger.info("optin_prompt_sent agent_phone=%s", agent_phone)
+            return prompt
+        except Exception as e:
+            logger.error(f"Error ejecutando comando /optin: {e}")
+            return f"❌ Error enviando opt-in: {str(e)}"
 
 
 # Instancia global del servicio

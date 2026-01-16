@@ -28,8 +28,8 @@ class AgentCommandService:
     # Comandos reconocidos y sus alias
     COMMAND_ALIASES = {
         'done': ['done', 'd', 'resuelto', 'r', 'resolved', 'finalizar', 'cerrar'],
-        'next': ['next', 'n', 'siguiente', 'sig', 'skip'],
-        'queue': ['queue', 'q', 'cola', 'list', 'lista'],
+        'next': ['next', 'n', 'siguiente', 'sig', 'skip', 's'],
+        'queue': ['queue', 'q', 'cola', 'list', 'lista', 'c'],
         'help': ['help', 'h', 'ayuda', '?', 'comandos'],
         'active': ['active', 'current', 'a', 'activo', 'actual'],
         'historial': ['historial', 'history', 'contexto', 'context', 'chat', 'recap', 'mensajes', 'messages'],
@@ -240,7 +240,12 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
 
                 logger.info(f"✅ Agente {agent_phone} cambió de {active_phone} a {next_phone}")
 
-                return f"🔄 Conversación con {old_nombre} movida al final de la cola.\n\n✅ Activando conversación con {new_nombre}..."
+                tip = "💡 Para ver los últimos mensajes del cliente activo: /historial"
+                return (
+                    f"🔄 Conversación con {old_nombre} movida al final de la cola.\n\n"
+                    f"✅ Activando conversación con {new_nombre}...\n\n"
+                    f"{tip}"
+                )
             else:
                 return "❌ Error al cambiar de conversación."
 
@@ -279,37 +284,32 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
         """
         help_text = """📚 *COMANDOS DISPONIBLES*
 
-🔹 *Comandos Principales:*
+🔹 *Comandos principales (en español):*
 
-**/done** (o /d, /resuelto)
-   Finaliza la conversación activa y activa la siguiente en cola.
-   Ejemplo: /done
+**/resuelto** (alias cortos: /r)
+   Cierra la conversación activa y activa la siguiente en la cola.
 
-**/next** (o /n, /siguiente)
-   Mueve la conversación activa al final de la cola y activa la siguiente.
-   Útil cuando necesitas cambiar temporalmente a otro cliente.
-   Ejemplo: /next
+**/siguiente** (alias cortos: /s)
+   Mueve la conversación activa al final y activa la próxima.
 
-**/queue** (o /q, /cola)
-   Muestra el estado completo de la cola de handoffs.
-   Ejemplo: /queue
+**/cola** (alias cortos: /c)
+   Muestra toda la cola y quién está activo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 
-🔹 *Comandos de Información:*
+🔹 *Comandos de información:*
 
-**/active** (o /a, /activo)
-   Muestra qué conversación está activa actualmente.
-   Ejemplo: /active
+**/activo** (alias cortos: /a)
+   Muestra la conversación activa.
 
-**/historial** (o /h, /contexto, /chat)
-   Muestra los últimos 5 mensajes de la conversación activa.
-   Útil para recordar qué se habló antes de cambiar con /next.
-   Ejemplo: /historial
+**/historial** (alias cortos: /h)
+   Muestra los últimos mensajes del cliente activo.
 
-**/help** (o /ayuda)
-   Muestra este mensaje de ayuda.
-   Ejemplo: /help
+**/ayuda**
+   Muestra esta ayuda rápida.
+
+**/optin**
+   Envía el consentimiento para habilitar plantillas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -317,9 +317,9 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
 
 • Siempre hay UNA conversación activa
 • Los mensajes que escribas van al cliente activo
-• Usa /done cuando termines con un cliente
+• Usa /resuelto cuando termines con un cliente
 • La siguiente conversación se activa automáticamente
-• Puedes ver la cola completa con /queue
+• Puedes ver la cola completa con /cola
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 

@@ -210,6 +210,14 @@ class ExpensasSheetService:
         return normalized
 
     @staticmethod
+    def _strip_avenida_prefix(normalized: str) -> str:
+        if not normalized:
+            return ""
+        normalized = normalized.strip()
+        normalized = re.sub(r"^avenida\s+", "", normalized).strip()
+        return normalized
+
+    @staticmethod
     def _normalize_piso_depto(text: str) -> str:
         if not text:
             return ""
@@ -324,6 +332,8 @@ class ExpensasSheetService:
         input_street_raw, input_numbers = self._extract_numbers_from_raw(input_clean)
         input_street_norm = self._normalize_address_text(input_street_raw)
         input_full_norm = self._normalize_address_text(input_clean)
+        input_street_norm_wo_avenida = self._strip_avenida_prefix(input_street_norm)
+        input_full_norm_wo_avenida = self._strip_avenida_prefix(input_full_norm)
 
         for code, raw_address in address_map.items():
             raw_str = str(raw_address)
@@ -331,12 +341,24 @@ class ExpensasSheetService:
             mapped_street_raw, mapped_numbers = self._extract_numbers_from_raw(mapped_clean)
             mapped_street_norm = self._normalize_address_text(mapped_street_raw)
             mapped_full_norm = self._normalize_address_text(mapped_clean)
+            mapped_street_norm_wo_avenida = self._strip_avenida_prefix(mapped_street_norm)
+            mapped_full_norm_wo_avenida = self._strip_avenida_prefix(mapped_full_norm)
 
-            if input_numbers and mapped_numbers and input_street_norm == mapped_street_norm:
+            same_street = input_street_norm == mapped_street_norm
+            same_street = same_street or (
+                input_street_norm_wo_avenida
+                and input_street_norm_wo_avenida == mapped_street_norm_wo_avenida
+            )
+            if input_numbers and mapped_numbers and same_street:
                 if any(num in mapped_numbers for num in input_numbers):
                     return self._coerce_code(code)
 
             if input_full_norm and input_full_norm == mapped_full_norm:
+                return self._coerce_code(code)
+            if (
+                input_full_norm_wo_avenida
+                and input_full_norm_wo_avenida == mapped_full_norm_wo_avenida
+            ):
                 return self._coerce_code(code)
 
         return None

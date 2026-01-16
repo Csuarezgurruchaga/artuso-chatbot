@@ -35,6 +35,7 @@ def _normalize_keyword(text: str) -> str:
 class OptInService:
     def __init__(self) -> None:
         self.enabled = os.getenv("OPTIN_ENABLED", "true").lower() == "true"
+        self.database = os.getenv("OPTIN_FIRESTORE_DATABASE", "default").strip() or "default"
         self.collection = os.getenv("OPTIN_FIRESTORE_COLLECTION", "opt-in").strip()
         self.bucket_name = os.getenv("OPTIN_GCS_BUCKET", "optin-audit").strip()
         self.optin_command = os.getenv("OPTIN_COMMAND", "optin").strip().lower()
@@ -57,7 +58,7 @@ class OptInService:
         if firestore is None:
             raise RuntimeError("google-cloud-firestore not installed")
         if self._fs_client is None:
-            self._fs_client = firestore.Client()
+            self._fs_client = firestore.Client(database=self.database)
         return self._fs_client
 
     def _get_bucket(self):

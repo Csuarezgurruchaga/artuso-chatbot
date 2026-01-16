@@ -550,13 +550,23 @@ async def webhook_whatsapp_receive(request: Request):
                     await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
                     return PlainTextResponse("", status_code=200)
 
-                handled, reply = optin_service.handle_inbound_message(
+                handled, reply, use_buttons = optin_service.handle_inbound_message(
                     numero_telefono,
                     mensaje_usuario,
                 )
                 if handled:
                     if reply:
-                        send_message(numero_telefono, reply)
+                        if use_buttons and not numero_telefono.startswith("messenger:"):
+                            buttons = optin_service.get_optin_buttons()
+                            sent = meta_whatsapp_service.send_interactive_buttons(
+                                numero_telefono,
+                                reply,
+                                buttons,
+                            )
+                            if not sent:
+                                send_message(numero_telefono, reply)
+                        else:
+                            send_message(numero_telefono, reply)
                     return PlainTextResponse("", status_code=200)
 
                 send_message(
@@ -566,10 +576,23 @@ async def webhook_whatsapp_receive(request: Request):
                 return PlainTextResponse("", status_code=200)
 
             from services.optin_service import optin_service
-            handled, reply = optin_service.handle_inbound_message(numero_telefono, mensaje_usuario)
+            handled, reply, use_buttons = optin_service.handle_inbound_message(
+                numero_telefono,
+                mensaje_usuario,
+            )
             if handled:
                 if reply:
-                    send_message(numero_telefono, reply)
+                    if use_buttons and not numero_telefono.startswith("messenger:"):
+                        buttons = optin_service.get_optin_buttons()
+                        sent = meta_whatsapp_service.send_interactive_buttons(
+                            numero_telefono,
+                            reply,
+                            buttons,
+                        )
+                        if not sent:
+                            send_message(numero_telefono, reply)
+                    else:
+                        send_message(numero_telefono, reply)
                 return PlainTextResponse("", status_code=200)
 
             conversacion_actual = conversation_manager.get_conversacion(numero_telefono)
@@ -1526,10 +1549,20 @@ async def handle_agent_message(agent_phone: str, message: str, profile_name: str
 
         # PASO 2: Es un mensaje normal, enviar a conversación activa
         from services.optin_service import optin_service
-        handled, reply = optin_service.handle_inbound_message(agent_phone, message)
+        handled, reply, use_buttons = optin_service.handle_inbound_message(agent_phone, message)
         if handled:
             if reply:
-                meta_whatsapp_service.send_text_message(agent_phone, reply)
+                if use_buttons:
+                    buttons = optin_service.get_optin_buttons()
+                    sent = meta_whatsapp_service.send_interactive_buttons(
+                        agent_phone,
+                        reply,
+                        buttons,
+                    )
+                    if not sent:
+                        meta_whatsapp_service.send_text_message(agent_phone, reply)
+                else:
+                    meta_whatsapp_service.send_text_message(agent_phone, reply)
             return
 
         active_phone = conversation_manager.get_active_handoff()

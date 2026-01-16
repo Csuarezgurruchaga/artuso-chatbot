@@ -99,19 +99,17 @@ class OptInService:
     def _build_prompt(self) -> str:
         company = self._company_name()
         return (
-            "Este numero sera utilizado para recibir comunicaciones laborales de soporte y atencion "
-            f"de parte de {company}.\n"
-            "Aceptas recibir estos mensajes?\n"
+            "Este numero será utilizado para recibir comunicaciones laborales de soporte y atención "
+            f"de parte de {company}. Aceptas recibir estos mensajes?\n\n"
             "Responde SI para aceptar o NO para rechazar."
         )
 
     def _build_accepted(self) -> str:
         company = self._company_name()
         return (
-            "Gracias por aceptar. A partir de ahora vas a recibir mensajes de soporte y atencion "
-            f"de {company}.\n"
-            "Si en cualquier momento queres dejar de recibirlos, responde BAJA o STOP.\n"
-            "Si fue un error, escribi ALTA y te enviaremos nuevamente el consentimiento."
+            "Gracias por aceptar. A partir de ahora vas a recibir mensajes de soporte y atención "
+            f"de {company}.\n\n"
+            "Si en cualquier momento queres dejar de recibirlos, responde “BAJA” o “STOP”."
         )
 
     def _build_declined(self) -> str:
@@ -125,7 +123,7 @@ class OptInService:
         company = self._company_name()
         return (
             f"Listo, no vas a recibir mas mensajes de {company}.\n"
-            "Si queres volver, escribi ALTA y te enviaremos el consentimiento."
+            "Si fue un error, escribi ALTA y te enviaremos nuevamente el consentimiento."
         )
 
     @staticmethod
@@ -134,6 +132,13 @@ class OptInService:
             "Tu baja ya estaba registrada.\n"
             "Si queres reactivar, escribi ALTA y te enviamos el consentimiento."
         )
+
+    @staticmethod
+    def get_optin_buttons() -> list:
+        return [
+            {"id": "SI", "title": "SI"},
+            {"id": "NO", "title": "NO"},
+        ]
 
     def _write_audit_event(
         self,
@@ -191,13 +196,13 @@ class OptInService:
             }
         )
 
-    def start_optin(self, channel: str, identifier: str) -> Optional[str]:
+    def start_optin(self, channel: str, identifier: str) -> Optional[Tuple[str, bool]]:
         if not self.enabled:
             return None
         identifier = self.normalize_identifier(channel, identifier)
         prompt = self._build_prompt()
         self._set_status(channel, identifier, "pending", prompt, "")
-        return prompt
+        return prompt, channel == "whatsapp"
 
     def is_opted_in(self, channel: str, identifier: str) -> bool:
         if not self.enabled:
@@ -220,14 +225,14 @@ class OptInService:
             return "messenger", self._normalize_messenger_identifier(raw_id)
         return "whatsapp", self._normalize_whatsapp_identifier(raw_id)
 
-    def handle_inbound_message(self, raw_id: str, message: str) -> Tuple[bool, Optional[str]]:
+    def handle_inbound_message(self, raw_id: str, message: str) -> Tuple[bool, Optional[str], bool]:
         if not self.enabled:
-            return False, None
+            return False, None, False
         normalized = _normalize_keyword(message)
         if not normalized:
-            return False, None
+            return False, None, False
         if normalized not in self.optout_keywords and normalized not in {"SI", "NO", self.resubscribe_keyword}:
-            return False, None
+            return False, None, False
 
         channel, identifier = self.resolve_identifier(raw_id)
 
@@ -237,28 +242,28 @@ class OptInService:
             if normalized == self.resubscribe_keyword:
                 prompt = self._build_prompt()
                 self._set_status(channel, identifier, "pending", prompt, normalized)
-                return True, prompt
+                return True, prompt, channel == "whatsapp"
 
             if normalized in self.optout_keywords:
                 if status == "accepted":
                     self._set_status(channel, identifier, "opted_out", prompt_text, normalized)
                     self._write_audit_event(channel, identifier, prompt_text, normalized)
-                    return True, self._build_optout_confirm()
+                    return True, self._build_optout_confirm(), False
                 if status == "opted_out":
                     self._set_status(channel, identifier, "opted_out", prompt_text, normalized)
                     self._write_audit_event(channel, identifier, prompt_text, normalized)
-                    return True, self._build_optout_already()
-                return False, None
+                    return True, self._build_optout_already(), False
+                return False, None, False
 
             if normalized in {"SI", "NO"}:
                 if status != "pending":
-                    return False, None
+                    return False, None, False
                 new_status = "accepted" if normalized == "SI" else "declined"
                 self._set_status(channel, identifier, new_status, prompt_text, normalized)
                 self._write_audit_event(channel, identifier, prompt_text, normalized)
                 if normalized == "SI":
-                    return True, self._build_accepted()
-                return True, self._build_declined()
+                    return True, self._build_accepted(), False
+                return True, self._build_declined(), False
 
         except Exception as exc:
             logger.error(
@@ -267,7 +272,7 @@ class OptInService:
                 identifier,
                 str(exc),
             )
-        return False, None
+        return False, None, False
 
 
 optin_service = OptInService()

@@ -522,9 +522,15 @@ Si no respondes en 2 minutos, cerraremos la conversación automáticamente."""
         try:
             from services.optin_service import optin_service
 
-            prompt = optin_service.start_optin("whatsapp", agent_phone)
-            if not prompt:
+            prompt_payload = optin_service.start_optin("whatsapp", agent_phone)
+            if not prompt_payload:
                 return "❌ Opt-in deshabilitado o no disponible."
+            prompt, use_buttons = prompt_payload
+            if use_buttons:
+                buttons = optin_service.get_optin_buttons()
+                if meta_whatsapp_service.send_interactive_buttons(agent_phone, prompt, buttons):
+                    logger.info("optin_prompt_sent agent_phone=%s", agent_phone)
+                    return ""
             logger.info("optin_prompt_sent agent_phone=%s", agent_phone)
             return prompt
         except Exception as e:

@@ -979,6 +979,21 @@ async def webhook_whatsapp_receive(request: Request):
             
             # Si está en handoff, reenviar al agente
             if conversacion_actual.atendido_por_humano or conversacion_actual.estado == EstadoConversacion.ATENDIDO_POR_HUMANO:
+                # Interceptar emergencia incluso si está en handoff (no notificar al agente).
+                emergencia_detectada = ChatbotRules._detect_emergency_intent(
+                    mensaje_usuario,
+                    conversacion_actual,
+                )
+                if emergencia_detectada:
+                    respuesta_emergencia = ChatbotRules._handle_emergency(
+                        numero_telefono,
+                        conversacion_actual,
+                        mensaje_usuario,
+                    )
+                    if respuesta_emergencia:
+                        send_message(numero_telefono, respuesta_emergencia)
+                    return PlainTextResponse("", status_code=200)
+
                 # Notificar al agente vía WhatsApp con indicación de posición en cola
                 active_phone = conversation_manager.get_active_handoff()
                 is_active = (active_phone == numero_telefono)

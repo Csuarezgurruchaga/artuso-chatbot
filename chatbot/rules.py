@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import unicodedata
@@ -22,6 +23,9 @@ RATE_LIMIT_MESSAGE = (
     "Por hoy ya alcanzaste el máximo de 10 interacciones 😊 "
     "Mañana podés volver a usar el servicio sin problema!"
 )
+EMERGENCY_NUMBER_ENV = "HANDOFF_EMERGENCY_WHATSAPP_NUMBER"
+EMERGENCY_PAUSED_FLAG = "_emergency_paused"
+EMERGENCY_MESSAGE_CACHE = "_emergency_message_cache"
 
 
 def _fecha_argentina(days_delta: int = 0) -> str:
@@ -148,6 +152,125 @@ class ChatbotRules:
         "thanks",
     }
     GRATITUDE_EMOJIS = {"🙏", "🤝", "👍", "🙌", "😊", "😁", "🤗", "👌"}
+
+    @staticmethod
+    def _format_emergency_number() -> Optional[str]:
+        raw = os.getenv(EMERGENCY_NUMBER_ENV, "").strip()
+        logger = logging.getLogger(__name__)
+        if not raw:
+            logger.error("emergency_number_missing env=%s", EMERGENCY_NUMBER_ENV)
+            return None
+
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) >= 10:
+            digits = digits[-10:]
+        if len(digits) != 10 or not digits.startswith("11"):
+            logger.error(
+                "emergency_number_invalid env=%s value=%s", EMERGENCY_NUMBER_ENV, raw
+            )
+            return None
+        return f"11-{digits[2:6]}-{digits[6:]}"
+
+    @staticmethod
+    def _build_emergency_message(formatted_number: str) -> str:
+        return (
+            "🚨 *Emergencia detectada*\n\n"
+            "Para una atención inmediata, comunicate directamente con nuestro equipo al siguiente número:\n\n"
+            f"📞 *{formatted_number}*\n\n"
+            "Este canal es el más rápido para resolver situaciones urgentes.\n"
+            "El chatbot no gestiona emergencias en tiempo real."
+        )
+
+    @staticmethod
+    def _is_emergency_paused(conversacion) -> bool:
+        return conversacion.datos_temporales.get(EMERGENCY_PAUSED_FLAG) is True
+
+    @staticmethod
+    def _set_emergency_pause(numero_telefono: str, message: str):
+        conversation_manager.set_datos_temporales(
+            numero_telefono, EMERGENCY_PAUSED_FLAG, True
+        )
+        conversation_manager.set_datos_temporales(
+            numero_telefono, EMERGENCY_MESSAGE_CACHE, message
+        )
+
+    @staticmethod
+    def _clear_emergency_pause(numero_telefono: str):
+        conversation_manager.set_datos_temporales(
+            numero_telefono, EMERGENCY_PAUSED_FLAG, False
+        )
+        conversation_manager.set_datos_temporales(
+            numero_telefono, EMERGENCY_MESSAGE_CACHE, None
+        )
+
+    @staticmethod
+    def _is_resume_command(mensaje_limpio: str) -> bool:
+        return mensaje_limpio.strip().lower() == "continuar"
+
+    @staticmethod
+    def _is_midflow_state(conversacion) -> bool:
+        return conversacion.estado not in {
+            EstadoConversacion.INICIO,
+            EstadoConversacion.ESPERANDO_OPCION,
+            EstadoConversacion.ATENDIDO_POR_HUMANO,
+        }
+
+    @staticmethod
+    def _detect_emergency_intent(mensaje: str, conversacion=None) -> bool:
+        if not mensaje:
+            return False
+        menu_context = conversacion and conversacion.estado in {
+            EstadoConversacion.INICIO,
+            EstadoConversacion.ESPERANDO_OPCION,
+        }
+
+        # Solo permitir detección por número de menú si estamos en contexto de menú.
+        if menu_context or not mensaje.strip().isdigit():
+            opcion, _ = ChatbotRules._match_menu_option(mensaje)
+            if opcion and opcion.get("tipo") == TipoConsulta.EMERGENCIA:
+                return True
+
+        try:
+            from services.nlu_service import nlu_service
+
+            intent = nlu_service.mapear_intencion(mensaje)
+            return intent == TipoConsulta.EMERGENCIA
+        except Exception:
+            return False
+
+    @staticmethod
+    def _handle_emergency(numero_telefono: str, conversacion, mensaje_original: str = "") -> Optional[str]:
+        logger = logging.getLogger(__name__)
+        formatted_number = ChatbotRules._format_emergency_number()
+        if not formatted_number:
+            return None
+
+        emergency_message = ChatbotRules._build_emergency_message(formatted_number)
+        logger.info("emergency_detected phone=%s state=%s", numero_telefono, conversacion.estado)
+
+        if conversacion.atendido_por_humano or conversacion.estado == EstadoConversacion.ATENDIDO_POR_HUMANO:
+            conversation_manager.set_datos_temporales(
+                numero_telefono, EMERGENCY_MESSAGE_CACHE, emergency_message
+            )
+            return emergency_message
+
+        if ChatbotRules._is_midflow_state(conversacion):
+            ChatbotRules._set_emergency_pause(numero_telefono, emergency_message)
+            return emergency_message
+
+        conversation_manager.finalizar_conversacion(numero_telefono)
+        return emergency_message
+
+    @staticmethod
+    def _emergency_message_cached(numero_telefono: str) -> Optional[str]:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        cached = conversacion.datos_temporales.get(EMERGENCY_MESSAGE_CACHE)
+        if cached:
+            return cached
+        formatted_number = ChatbotRules._format_emergency_number()
+        if not formatted_number:
+            return None
+        return ChatbotRules._build_emergency_message(formatted_number)
 
     @classmethod
     def _get_menu_options(cls):
@@ -332,6 +455,10 @@ Responde con el número de la opción que necesitas 📱"""
 
         import logging
         logger = logging.getLogger(__name__)
+
+        if tipo_consulta == TipoConsulta.EMERGENCIA:
+            respuesta_emergencia = ChatbotRules._handle_emergency(numero_telefono, conversacion, mensaje)
+            return respuesta_emergencia or ""
 
         conversation_manager.set_tipo_consulta(numero_telefono, tipo_consulta)
         conversation_manager.clear_datos_temporales(numero_telefono)
@@ -2111,6 +2238,19 @@ Responde con el número del campo que deseas modificar."""
             conversation_manager.set_nombre_usuario(numero_telefono, nombre_usuario)
 
         mensaje_limpio = mensaje.strip().lower()
+
+        # Reanudar o mantener pausa por emergencia
+        if ChatbotRules._is_emergency_paused(conversacion):
+            if ChatbotRules._is_resume_command(mensaje_limpio):
+                ChatbotRules._clear_emergency_pause(numero_telefono)
+                return "Retomamos la conversación. Podés continuar donde quedamos."
+            cached = ChatbotRules._emergency_message_cached(numero_telefono)
+            return cached or ""
+
+        # Interceptar emergencias antes de cualquier otro flujo
+        if ChatbotRules._detect_emergency_intent(mensaje, conversacion):
+            respuesta_emergencia = ChatbotRules._handle_emergency(numero_telefono, conversacion, mensaje)
+            return respuesta_emergencia or ""
 
         if mensaje_limpio in ['hola', 'hi', 'hello', 'inicio', 'empezar']:
             conversation_manager.reset_conversacion(numero_telefono)

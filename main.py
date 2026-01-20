@@ -49,7 +49,6 @@ COMPROBANTE_MIME_EXT = {
     "application/pdf": ".pdf",
 }
 
-RATE_LIMIT_GREETINGS = {"hola", "hi", "hello", "inicio", "empezar"}
 HANDOFF_STANDARD_NUMBER_ENV = "HANDOFF_WHATSAPP_NUMBER"
 HANDOFF_EMERGENCY_NUMBER_ENV = "HANDOFF_EMERGENCY_WHATSAPP_NUMBER"
 
@@ -79,9 +78,7 @@ def _get_handoff_agent_number(conversacion: ConversacionData) -> str:
 
 
 def _is_greeting_message(message_text: str) -> bool:
-    if not message_text:
-        return False
-    return message_text.strip().lower() in RATE_LIMIT_GREETINGS
+    return ChatbotRules._is_greeting_command(message_text or "")
 
 
 def _should_count_rate_limit(

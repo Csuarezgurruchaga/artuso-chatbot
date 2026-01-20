@@ -31,6 +31,27 @@ def test_hola_counts_en_esperando_opcion():
     conv = _build_conv(EstadoConversacion.ESPERANDO_OPCION)
     assert _should_count_rate_limit(conv, "hola", True, False)
 
+def test_hola_con_puntuacion_cuenta():
+    conv = _build_conv(EstadoConversacion.ESPERANDO_OPCION)
+    assert _should_count_rate_limit(conv, "hola!", True, False)
+    assert _should_count_rate_limit(conv, "¡hola!", True, False)
+
+def test_saludos_abreviados_cuentan():
+    conv = _build_conv(EstadoConversacion.ESPERANDO_OPCION)
+    for msg in ["h", "alo", "ola", "holi", "holis"]:
+        assert _should_count_rate_limit(conv, msg, True, False)
+
+
+def test_typos_de_hola_cuentan():
+    conv = _build_conv(EstadoConversacion.ESPERANDO_OPCION)
+    for msg in ["hol", "holaa", "holaaa", "hloa", "hoal", "holá", "hola!!"]:
+        assert _should_count_rate_limit(conv, msg, True, False)
+
+
+def test_similares_no_cuentan():
+    conv = _build_conv(EstadoConversacion.ESPERANDO_OPCION)
+    assert not _should_count_rate_limit(conv, "hora", True, False)
+
 
 def test_hola_mid_flujo_cuenta():
     conv = _build_conv(EstadoConversacion.RECOLECTANDO_SECUENCIAL)

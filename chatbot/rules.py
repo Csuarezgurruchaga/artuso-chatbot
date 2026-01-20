@@ -78,6 +78,18 @@ SINONIMOS_CABA_NORM = {normalizar_texto(s) for s in SINONIMOS_CABA}
 SINONIMOS_PROVINCIA_NORM = {normalizar_texto(s) for s in SINONIMOS_PROVINCIA}
 
 class ChatbotRules:
+    GREETING_COMMANDS = {
+        "hola",
+        "holi",
+        "holis",
+        "hi",
+        "hello",
+        "inicio",
+        "empezar",
+        "h",
+        "alo",
+        "ola",
+    }
     MENU_OPTIONS = (
         {
             "id": "pago_expensas",
@@ -293,6 +305,101 @@ class ChatbotRules:
         )
         text = ''.join(c if c.isalnum() or c.isspace() else ' ' for c in text)
         return " ".join(text.split())
+
+    @staticmethod
+    def _normalize_greeting_command(text: str) -> str:
+        """Normaliza comandos cortos (p.ej. 'hola!') sin afectar el texto para NLU."""
+        if not text:
+            return ""
+        normalized = text.strip().lower()
+        normalized = "".join(
+            c
+            for c in unicodedata.normalize("NFD", normalized)
+            if unicodedata.category(c) != "Mn"
+        )
+        normalized = " ".join(normalized.split())
+        # Remueve puntuación y símbolos comunes solo en los bordes (no en el medio).
+        normalized = normalized.strip(" \t\n\r¡!¿?.,;:()[]{}\"'`~*_")
+        return " ".join(normalized.split())
+
+    @staticmethod
+    def _squeeze_repeated_chars(text: str) -> str:
+        if not text:
+            return ""
+        return re.sub(r"(.)\1+", r"\1", text)
+
+    @staticmethod
+    def _is_single_transposition(a: str, b: str) -> bool:
+        if len(a) != len(b) or a == b:
+            return False
+        diffs = [i for i, (ca, cb) in enumerate(zip(a, b)) if ca != cb]
+        if len(diffs) != 2:
+            return False
+        i, j = diffs
+        if j != i + 1:
+            return False
+        a_list = list(a)
+        a_list[i], a_list[j] = a_list[j], a_list[i]
+        return "".join(a_list) == b
+
+    @staticmethod
+    def _edit_distance_at_most_one(a: str, b: str) -> bool:
+        """Chequea si la distancia de edición (ins/del/subst) es <= 1."""
+        if a == b:
+            return True
+        la, lb = len(a), len(b)
+        if abs(la - lb) > 1:
+            return False
+
+        # Substitución (misma longitud)
+        if la == lb:
+            mismatches = sum(1 for ca, cb in zip(a, b) if ca != cb)
+            return mismatches <= 1
+
+        # Inserción/eliminación (longitud difiere en 1)
+        if la > lb:
+            longer, shorter = a, b
+        else:
+            longer, shorter = b, a
+        i = j = 0
+        used_edit = False
+        while i < len(longer) and j < len(shorter):
+            if longer[i] == shorter[j]:
+                i += 1
+                j += 1
+                continue
+            if used_edit:
+                return False
+            used_edit = True
+            i += 1  # saltar un char en el string más largo
+        return True
+
+    @classmethod
+    def _is_hola_typo(cls, token: str) -> bool:
+        if not token or " " in token:
+            return False
+        token = cls._squeeze_repeated_chars(token)
+        if not token.isalpha():
+            return False
+        # Evitar falsos positivos tipo "hora": pedimos 'h' + 'o' + 'l'
+        if not token.startswith("h"):
+            return False
+        if "o" not in token or "l" not in token:
+            return False
+        if len(token) < 3 or len(token) > 6:
+            return False
+        if token in {"hol", "hola"}:
+            return True
+        if cls._is_single_transposition(token, "hola"):
+            return True
+        return cls._edit_distance_at_most_one(token, "hola")
+
+    @classmethod
+    def _is_greeting_command(cls, message_text: str) -> bool:
+        token = cls._normalize_greeting_command(message_text)
+        if token in cls.GREETING_COMMANDS:
+            return True
+        return cls._is_hola_typo(token)
 
     @classmethod
     def _get_menu_keywords(cls) -> dict:
@@ -2238,6 +2345,7 @@ Responde con el número del campo que deseas modificar."""
             conversation_manager.set_nombre_usuario(numero_telefono, nombre_usuario)
 
         mensaje_limpio = mensaje.strip().lower()
+        is_greeting = ChatbotRules._is_greeting_command(mensaje)
 
         # Reanudar o mantener pausa por emergencia
         if ChatbotRules._is_emergency_paused(conversacion):
@@ -2252,7 +2360,7 @@ Responde con el número del campo que deseas modificar."""
             respuesta_emergencia = ChatbotRules._handle_emergency(numero_telefono, conversacion, mensaje)
             return respuesta_emergencia or ""
 
-        if mensaje_limpio in ['hola', 'hi', 'hello', 'inicio', 'empezar']:
+        if is_greeting:
             conversation_manager.reset_conversacion(numero_telefono)
             conversacion = conversation_manager.get_conversacion(numero_telefono)
             

@@ -7,12 +7,8 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    import gspread
-    from google.oauth2.service_account import Credentials
-except Exception:
-    gspread = None
-    Credentials = None
+gspread = None
+Credentials = None
 
 from services.expensas_sheet_service import EXPENSAS_SPREADSHEET_ID
 
@@ -45,10 +41,17 @@ class ClientsSheetService:
         return Credentials.from_service_account_info(info, scopes=SCOPES)
 
     def _get_client(self):
+        global gspread, Credentials
         if not self.enabled:
             raise RuntimeError("ClientsSheetService disabled")
         if gspread is None or Credentials is None:
-            raise RuntimeError("gspread/google-auth not installed")
+            try:
+                import gspread as _gspread
+                from google.oauth2.service_account import Credentials as _Credentials
+            except Exception as exc:
+                raise RuntimeError("gspread/google-auth not installed") from exc
+            gspread = _gspread
+            Credentials = _Credentials
         now = datetime.now(timezone.utc).timestamp()
         if self._gc and now - self._last_auth_ts < self._auth_ttl:
             return self._gc

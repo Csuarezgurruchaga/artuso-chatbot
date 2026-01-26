@@ -2,8 +2,11 @@ import os
 import logging
 from datetime import datetime
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+try:
+    from botocore.exceptions import BotoCoreError, ClientError
+except Exception:
+    BotoCoreError = Exception
+    ClientError = Exception
 
 from chatbot.models import ConversacionData, TipoConsulta
 from config.company_profiles import get_active_company_profile
@@ -21,13 +24,22 @@ class EmailService:
         self.bot_name = company_profile['bot_name']
         self.reply_to = os.getenv("REPLY_TO_EMAIL", "").strip()
         self.region = os.getenv("AWS_REGION", "us-east-1")
+        self._ses = None
         
         if not self.from_email:
             raise ValueError("email_bot no puede estar vacío para enviar correos")
         if not self.to_email:
             raise ValueError("email (destino) no puede estar vacío para enviar correos")
         
-        self.ses = boto3.client("ses", region_name=self.region)
+    def _get_ses(self):
+        if self._ses is not None:
+            return self._ses
+        try:
+            import boto3
+        except Exception as exc:
+            raise RuntimeError(f"boto3 not installed: {exc}") from exc
+        self._ses = boto3.client("ses", region_name=self.region)
+        return self._ses
     
     def enviar_lead_email(self, conversacion: ConversacionData) -> bool:
         try:
@@ -46,7 +58,7 @@ class EmailService:
             if self.reply_to:
                 send_kwargs["ReplyToAddresses"] = [self.reply_to]
             
-            response = self.ses.send_email(**send_kwargs)
+            response = self._get_ses().send_email(**send_kwargs)
             status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
             
             if status_code == 200:
@@ -155,7 +167,7 @@ class EmailService:
             if self.reply_to:
                 send_kwargs["ReplyToAddresses"] = [self.reply_to]
 
-            response = self.ses.send_email(**send_kwargs)
+            response = self._get_ses().send_email(**send_kwargs)
             status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
 
             if status_code == 200:

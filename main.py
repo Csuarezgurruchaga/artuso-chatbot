@@ -15,14 +15,7 @@ from chatbot.models import EstadoConversacion, ConversacionData, TipoConsulta
 from services.meta_whatsapp_service import meta_whatsapp_service
 from services.meta_messenger_service import meta_messenger_service
 from services.whatsapp_handoff_service import whatsapp_handoff_service
-from services.email_service import email_service
-from services.expensas_sheet_service import expensas_sheet_service
-from services.gcs_storage_service import gcs_storage_service
-from services.clients_sheet_service import clients_sheet_service
-from services.error_reporter import error_reporter, ErrorTrigger
-from services.metrics_service import metrics_service
 from services.phone_display import format_phone_for_agent
-from services.rate_limit_service import rate_limit_service
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -151,6 +144,8 @@ def _append_url_to_list(conversacion: ConversacionData, key: str, url: str) -> l
 
 
 def _persist_client_address(conversacion: ConversacionData) -> None:
+    from services.clients_sheet_service import clients_sheet_service
+
     data = conversacion.datos_temporales.get("_direccion_para_guardar")
     if not data:
         return
@@ -225,6 +220,10 @@ def _notify_handoff_activated(conversacion: ConversacionData, position: int, tot
 
 
 def _postprocess_enviando(numero_telefono: str) -> None:
+    from services.email_service import email_service
+    from services.expensas_sheet_service import expensas_sheet_service
+    from services.metrics_service import metrics_service
+
     conversacion = conversation_manager.conversaciones.get(numero_telefono)
     if not conversacion or conversacion.estado != EstadoConversacion.ENVIANDO:
         return
@@ -601,6 +600,8 @@ async def webhook_whatsapp_receive(request: Request):
                 is_whatsapp,
                 was_finalized_recently,
             ):
+                from services.rate_limit_service import rate_limit_service
+
                 allowed, count, date_key = rate_limit_service.check_and_increment(numero_telefono)
                 if not allowed:
                     logger.info(
@@ -678,6 +679,8 @@ async def webhook_whatsapp_receive(request: Request):
                         "❌ Formato no soportado. Enviá PNG, JPG, PDF o HEIC.",
                     )
                     return PlainTextResponse("", status_code=200)
+
+                from services.gcs_storage_service import gcs_storage_service
 
                 url = gcs_storage_service.upload_public(content, mime_type, ext)
                 if not url:
@@ -1111,6 +1114,8 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
                 )
             
             # Registrar métricas
+            from services.metrics_service import metrics_service
+
             if message_status == 'sent':
                 metrics_service.on_message_sent()
             elif message_status == 'delivered':
@@ -1127,6 +1132,8 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
         logger.error(f"Error en webhook de WhatsApp: {str(e)}")
         # Reporte estructurado de excepción
         try:
+            from services.error_reporter import error_reporter
+
             error_reporter.capture_exception(
                 e,
                 {

@@ -10,9 +10,9 @@ Implementar opt-in obligatorio antes de iniciar conversaciones por template en W
 
 ## Goals
 - Bloquear envio de templates si el numero no tiene opt-in aceptado.
-- Solicitar opt-in via mensaje de texto (SI/NO) mediante comando oculto /optin para numeros internos.
+- Solicitar opt-in via mensaje de texto (ACEPTO/RECHAZO) mediante comando oculto /optin para numeros internos.
 - Registrar consentimiento (identificador, texto mostrado, respuesta, timestamp) en GCS.
-- Ofrecer opt-out con BAJA/STOP y re-suscripcion via ALTA (requiere nuevo SI).
+- Ofrecer opt-out con BAJA/STOP y re-suscripcion via ALTA (requiere nuevo ACEPTO).
 - Mensajes en espanol informal.
 
 ## Non-goals
@@ -23,7 +23,8 @@ Implementar opt-in obligatorio antes de iniciar conversaciones por template en W
 
 ## Functional requirements
 1. El opt-in aplica a conversaciones iniciadas por template en WhatsApp y Messenger.
-2. El opt-in se solicita por texto; respuestas validas solo SI o NO cuando el estado esta pendiente.
+2. El opt-in se solicita por texto; respuestas validas solo ACEPTO o RECHAZO cuando el estado esta pendiente.
+   - Nota: para numeros internos (agentes) se procesa ACEPTO/RECHAZO solo cuando llega como interaccion (boton) para evitar falsos positivos por texto libre.
 3. El opt-in se dispara con el comando oculto `/optin` enviado desde un numero de agente interno; responde al mismo numero.
 4. Para enviar un template a un numero, debe existir opt-in aceptado en Firestore/Datastore; caso contrario se bloquea el envio.
 5. La verificacion de opt-in es por canal (WhatsApp/Messenger) y usa identificador telefono o PSID.
@@ -31,9 +32,9 @@ Implementar opt-in obligatorio antes de iniciar conversaciones por template en W
 7. En cada evento (opt-in aceptado/rechazado, opt-out) se registra auditoria en GCS.
 8. Campos de auditoria: identificador, canal, texto mostrado, respuesta, timestamp ISO-8601 UTC.
 9. Opt-out: palabras clave `BAJA` o `STOP` desde numeros con opt-in aceptado.
-10. ALTA reenvia el opt-in y requiere SI para reactivar.
-11. Al aceptar SI, enviar mensaje de agradecimiento con instrucciones de opt-out.
-12. Al responder NO, enviar confirmacion de rechazo con instrucciones para ALTA.
+10. ALTA reenvia el opt-in y requiere ACEPTO para reactivar.
+11. Al aceptar ACEPTO, enviar mensaje de agradecimiento con instrucciones de opt-out.
+12. Al responder RECHAZO, enviar confirmacion de rechazo con instrucciones para ALTA.
 13. Para Messenger, almacenar PSID + canal en auditoria y Firestore.
 
 ## Copy (texto base)
@@ -41,7 +42,7 @@ Opt-in prompt:
 
 Este numero sera utilizado para recibir comunicaciones laborales de soporte y atencion de parte de {empresa}.
 Aceptas recibir estos mensajes?
-Responde SI para aceptar o NO para rechazar.
+Responde ACEPTO para aceptar o RECHAZO para rechazar.
 
 Opt-in accepted ack (opt-out info):
 
@@ -81,9 +82,9 @@ Si queres volver, escribi ALTA y te enviaremos el consentimiento.
   - **Rejected alternatives:** Sheets para runtime (latencia y cuotas), GCS como lookup (no KV).
 - **Decision:** Guardar auditoria en GCS (bucket nuevo); no usar Sheets.
   - **Rationale:** Archivo durable sin afectar la latencia del runtime.
-- **Decision:** Opt-in por texto SI/NO con comando `/optin`.
+- **Decision:** Opt-in por texto ACEPTO/RECHAZO con comando `/optin`.
   - **Rationale:** Simplicidad y evita botones.
-- **Decision:** Opt-out con BAJA/STOP y re-suscripcion via ALTA (requiere SI).
+- **Decision:** Opt-out con BAJA/STOP y re-suscripcion via ALTA (requiere ACEPTO).
   - **Rationale:** Evita colisiones con otros flujos y permite corregir errores.
 - **Decision:** Bloqueo de envio de templates si no hay opt-in aceptado.
   - **Rationale:** Cumplimiento estricto de Meta.

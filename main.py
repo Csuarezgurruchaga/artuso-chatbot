@@ -16,6 +16,7 @@ from services.meta_whatsapp_service import meta_whatsapp_service
 from services.meta_messenger_service import meta_messenger_service
 from services.whatsapp_handoff_service import whatsapp_handoff_service
 from services.phone_display import format_phone_for_agent
+import unicodedata
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +45,24 @@ COMPROBANTE_MIME_EXT = {
 
 HANDOFF_STANDARD_NUMBER_ENV = "HANDOFF_WHATSAPP_NUMBER"
 HANDOFF_EMERGENCY_NUMBER_ENV = "HANDOFF_EMERGENCY_WHATSAPP_NUMBER"
+RATE_LIMIT_INBOUND_ENABLED = os.getenv("RATE_LIMIT_INBOUND_ENABLED", "false").lower() == "true"
+
+
+def _normalize_optin_keyword(text: str) -> str:
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFD", text.strip().upper())
+    return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+
+
+_OPTIN_ACCEPT_KEYWORD = _normalize_optin_keyword(os.getenv("OPTIN_ACCEPT_KEYWORD", "ACEPTO"))
+_OPTIN_DECLINE_KEYWORD = _normalize_optin_keyword(os.getenv("OPTIN_DECLINE_KEYWORD", "RECHAZO"))
+_OPTIN_RESUBSCRIBE_KEYWORD = _normalize_optin_keyword(os.getenv("OPTIN_RESUBSCRIBE_KEYWORD", "ALTA"))
+_OPTIN_OUT_KEYWORDS = {
+    _normalize_optin_keyword(k)
+    for k in os.getenv("OPTIN_OUT_KEYWORDS", "BAJA,STOP").split(",")
+    if k.strip()
+}
 
 
 def _select_handoff_agent_number(conversacion: ConversacionData) -> tuple[str, str]:
@@ -539,12 +558,94 @@ async def webhook_whatsapp_receive(request: Request):
                     if command == "optin":
                         await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
                         return PlainTextResponse("", status_code=200)
-
-                from services.optin_service import optin_service
-                channel, identifier = optin_service.resolve_identifier(numero_telefono)
-                if optin_service.is_opted_in(channel, identifier):
                     await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
                     return PlainTextResponse("", status_code=200)
+
+                normalized_optin = _normalize_optin_keyword(mensaje_usuario or "")
+                is_optin_accept_decline = normalized_optin in {
+                    _OPTIN_ACCEPT_KEYWORD,
+                    _OPTIN_DECLINE_KEYWORD,
+                }
+                is_optin_resubscribe = normalized_optin == _OPTIN_RESUBSCRIBE_KEYWORD
+                is_optin_optout = normalized_optin in _OPTIN_OUT_KEYWORDS
+
+                if message_type == "interactive" and is_optin_accept_decline:
+                    from services.optin_service import optin_service
+
+                    handled, reply, use_buttons = optin_service.handle_inbound_message(
+                        numero_telefono,
+                        mensaje_usuario,
+                    )
+                    if handled:
+                        if reply:
+                            if use_buttons and not numero_telefono.startswith("messenger:"):
+                                buttons = optin_service.get_optin_buttons()
+                                sent = meta_whatsapp_service.send_interactive_buttons(
+                                    numero_telefono,
+                                    reply,
+                                    buttons,
+                                )
+                                if not sent:
+                                    send_message(numero_telefono, reply)
+                            else:
+                                send_message(numero_telefono, reply)
+                        return PlainTextResponse("", status_code=200)
+
+                    send_message(
+                        numero_telefono,
+                        "No pude aplicar esa respuesta. "
+                        "Si era por el opt-in, usa /optin (o ALTA) y respondé con los botones.",
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                if is_optin_resubscribe or is_optin_optout:
+                    from services.optin_service import optin_service
+
+                    handled, reply, use_buttons = optin_service.handle_inbound_message(
+                        numero_telefono,
+                        mensaje_usuario,
+                    )
+                    if handled:
+                        if reply:
+                            if use_buttons and not numero_telefono.startswith("messenger:"):
+                                buttons = optin_service.get_optin_buttons()
+                                sent = meta_whatsapp_service.send_interactive_buttons(
+                                    numero_telefono,
+                                    reply,
+                                    buttons,
+                                )
+                                if not sent:
+                                    send_message(numero_telefono, reply)
+                            else:
+                                send_message(numero_telefono, reply)
+                        return PlainTextResponse("", status_code=200)
+
+                if message_type != "interactive" and is_optin_accept_decline:
+                    send_message(
+                        numero_telefono,
+                        "Para aceptar/rechazar el opt-in, usa los botones del mensaje de consentimiento. "
+                        "Si no los ves, usa /optin para recibirlos nuevamente.",
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                if message_type == "interactive":
+                    logger.info(
+                        "agent_interactive_ignored agent_phone=%s id=%s",
+                        numero_telefono,
+                        mensaje_usuario,
+                    )
+                    return PlainTextResponse("", status_code=200)
+
+                await handle_agent_message(numero_telefono, mensaje_usuario, profile_name)
+                return PlainTextResponse("", status_code=200)
+
+            normalized_optin = _normalize_optin_keyword(mensaje_usuario or "")
+            should_check_optin = normalized_optin in (
+                _OPTIN_OUT_KEYWORDS
+                | {_OPTIN_ACCEPT_KEYWORD, _OPTIN_DECLINE_KEYWORD, _OPTIN_RESUBSCRIBE_KEYWORD}
+            )
+            if should_check_optin:
+                from services.optin_service import optin_service
 
                 handled, reply, use_buttons = optin_service.handle_inbound_message(
                     numero_telefono,
@@ -565,36 +666,10 @@ async def webhook_whatsapp_receive(request: Request):
                             send_message(numero_telefono, reply)
                     return PlainTextResponse("", status_code=200)
 
-                send_message(
-                    numero_telefono,
-                    "Para habilitar mensajes de handoff, usa /optin.",
-                )
-                return PlainTextResponse("", status_code=200)
-
-            from services.optin_service import optin_service
-            handled, reply, use_buttons = optin_service.handle_inbound_message(
-                numero_telefono,
-                mensaje_usuario,
-            )
-            if handled:
-                if reply:
-                    if use_buttons and not numero_telefono.startswith("messenger:"):
-                        buttons = optin_service.get_optin_buttons()
-                        sent = meta_whatsapp_service.send_interactive_buttons(
-                            numero_telefono,
-                            reply,
-                            buttons,
-                        )
-                        if not sent:
-                            send_message(numero_telefono, reply)
-                    else:
-                        send_message(numero_telefono, reply)
-                return PlainTextResponse("", status_code=200)
-
             conversacion_actual = conversation_manager.get_conversacion(numero_telefono)
             was_finalized_recently = conversation_manager.was_finalized_recently(numero_telefono)
 
-            if _should_count_rate_limit(
+            if RATE_LIMIT_INBOUND_ENABLED and _should_count_rate_limit(
                 conversacion_actual,
                 mensaje_usuario,
                 is_whatsapp,

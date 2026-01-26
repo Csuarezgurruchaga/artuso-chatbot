@@ -1,0 +1,27 @@
+.git
+.gitignore
+.github
+
+# Local virtualenvs and caches
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Local config / secrets
+.env
+.env.*
+
+# Docs/tests (not required at runtime)
+docs
+tests
+
+# Local artifacts
+*.log
+temp_conversion
+

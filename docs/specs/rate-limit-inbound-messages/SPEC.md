@@ -29,6 +29,7 @@ Apply a daily per-phone rate limit on conversation starts so repeated inbound "h
 9. Media without caption as the first inbound message must count as a start.
 10. When blocked, do not update `Updated_at` or increment further counts.
 11. Do not count messages during `POST_FINALIZADO_WINDOW` (120s).
+12. Allow disabling the inbound rate limit check via config (`RATE_LIMIT_INBOUND_ENABLED=false`).
 
 ## Non-functional requirements
 - Minimal, reviewable diffs.

@@ -111,7 +111,7 @@ class ChatbotRules:
     MENU_MATCH_PRIORITY = ("emergencia", "pago_expensas", "solicitar_servicio")
     MENU_STOPWORDS = {"un", "una", "de", "del", "la", "el", "las", "los", "para", "por", "a", "y", "en"}
     EXTRA_MENU_KEYWORDS = {
-        "pago_expensas": ["expensas", "pago", "abono", "liquidacion", "liquidación"],
+        "pago_expensas": ["expensas", "pago", "abono", "registrar", "registro", "informar"],
         "solicitar_servicio": [
             "servicio",
             "servicios",
@@ -125,8 +125,18 @@ class ChatbotRules:
             "humedad",
             "fumigacion",
             "fumigación",
+            "desinfeccion",
+            "desinfección",
+            "cucaracha",
+            "cucarachas",
+            "rata",
+            "ratas",
+            "plaga",
+            "plagas",
+            "roedor",
+            "roedores",
         ],
-        "emergencia": ["emergencia", "urgente", "urgencia"],
+        "emergencia": ["emergencia", "urgente", "urgencia", "auxilio", "peligro"],
     }
     _MENU_KEYWORDS = None
     SERVICE_TYPE_OPTIONS = (
@@ -228,13 +238,17 @@ class ChatbotRules:
     def _detect_emergency_intent(mensaje: str, conversacion=None) -> bool:
         if not mensaje:
             return False
+        # Evitar llamada a NLU por saludos comunes (primer mensaje típico).
+        if ChatbotRules._is_greeting_command(mensaje):
+            return False
         menu_context = conversacion and conversacion.estado in {
             EstadoConversacion.INICIO,
             EstadoConversacion.ESPERANDO_OPCION,
         }
 
-        # Solo permitir detección por número de menú si estamos en contexto de menú.
-        if menu_context or not mensaje.strip().isdigit():
+        # Solo permitir detección por keywords/frases del menú si estamos en contexto de menú.
+        # Fuera del menú, la detección de emergencia se delega a NLU (OpenAI) para minimizar falsos positivos.
+        if menu_context:
             opcion, _ = ChatbotRules._match_menu_option(mensaje)
             if opcion and opcion.get("tipo") == TipoConsulta.EMERGENCIA:
                 return True
@@ -301,7 +315,10 @@ class ChatbotRules:
             if unicodedata.category(c) != 'Mn'
         )
         text = ''.join(c if c.isalnum() or c.isspace() else ' ' for c in text)
-        return " ".join(text.split())
+        text = " ".join(text.split())
+        # Colapsa alargamientos (>=3 repeticiones) sin romper letras dobles reales (ll/rr/etc).
+        text = re.sub(r"(.)\1{2,}", r"\1", text)
+        return text
 
     @staticmethod
     def _normalize_greeting_command(text: str) -> str:
@@ -437,6 +454,28 @@ class ChatbotRules:
         normalized = cls._normalize_menu_text(mensaje)
         if not normalized:
             return None, ""
+        # Frases específicas para mapear a emergencia SOLO desde el inicio/menú.
+        # (No se usan en la detección global de emergencia para no interrumpir flujos en curso.)
+        emergency_option = cls._get_menu_option_by_id("emergencia")
+        if emergency_option:
+            emergency_phrases = (
+                "sin agua",
+                "corte de agua",
+                "agua cortada",
+                "falta de agua",
+                "no hay agua",
+                "baja presion",
+                "baja presion de agua",
+                "poca presion",
+                "poca presion de agua",
+                "sin gas",
+                "corte de gas",
+                "gas cortado",
+                "no hay gas",
+            )
+            for phrase in emergency_phrases:
+                if re.search(rf"\b{re.escape(phrase)}\b", normalized):
+                    return emergency_option, "keyword_phrase"
         for option in cls.MENU_OPTIONS:
             if normalized == option["id"]:
                 return option, "id"
@@ -533,10 +572,7 @@ Responde con el número de la opción que necesitas 📱"""
         """
         mensaje_lower = mensaje.lower().strip()
         frases_menu = [
-            'volver', 'menu', 'menú', 'inicio', 'empezar de nuevo',
-            'me equivoqué', 'me equivoque', 'error', 'atrás', 'atras',
-            'menu principal', 'menú principal', 'opción', 'opcion',
-            'elegir otra', 'cambiar opción', 'cambiar opcion'
+            'menu', 'menú', 'menu principal', 'menú principal'
         ]
         
         return any(frase in mensaje_lower for frase in frases_menu)

@@ -25,7 +25,13 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 
-COPY . .
+COPY main.py ./
+COPY chatbot ./chatbot
+COPY services ./services
+COPY config ./config
+COPY templates ./templates
+COPY assets ./assets
+COPY jobs ./jobs
 
 EXPOSE 8080
 

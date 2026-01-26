@@ -45,6 +45,12 @@ class OptInService:
         self.resubscribe_keyword = _normalize_keyword(
             os.getenv("OPTIN_RESUBSCRIBE_KEYWORD", "ALTA")
         )
+        self.accept_keyword = _normalize_keyword(
+            os.getenv("OPTIN_ACCEPT_KEYWORD", "ACEPTO")
+        )
+        self.decline_keyword = _normalize_keyword(
+            os.getenv("OPTIN_DECLINE_KEYWORD", "RECHAZO")
+        )
         self._fs_client = None
         self._storage_client = None
         self._bucket = None
@@ -98,10 +104,12 @@ class OptInService:
 
     def _build_prompt(self) -> str:
         company = self._company_name()
+        accept = self.accept_keyword or "ACEPTO"
+        decline = self.decline_keyword or "RECHAZO"
         return (
             "Este numero será utilizado para recibir comunicaciones laborales de soporte y atención "
             f"de parte de {company}. Aceptas recibir estos mensajes?\n\n"
-            "Responde SI para aceptar o NO para rechazar."
+            f"Responde {accept} para aceptar o {decline} para rechazar."
         )
 
     def _build_accepted(self) -> str:
@@ -133,11 +141,12 @@ class OptInService:
             "Si queres reactivar, escribi ALTA y te enviamos el consentimiento."
         )
 
-    @staticmethod
-    def get_optin_buttons() -> list:
+    def get_optin_buttons(self) -> list:
+        accept = self.accept_keyword or "ACEPTO"
+        decline = self.decline_keyword or "RECHAZO"
         return [
-            {"id": "SI", "title": "SI"},
-            {"id": "NO", "title": "NO"},
+            {"id": accept, "title": accept},
+            {"id": decline, "title": decline},
         ]
 
     def _write_audit_event(
@@ -231,7 +240,11 @@ class OptInService:
         normalized = _normalize_keyword(message)
         if not normalized:
             return False, None, False
-        if normalized not in self.optout_keywords and normalized not in {"SI", "NO", self.resubscribe_keyword}:
+        if normalized not in self.optout_keywords and normalized not in {
+            self.accept_keyword,
+            self.decline_keyword,
+            self.resubscribe_keyword,
+        }:
             return False, None, False
 
         channel, identifier = self.resolve_identifier(raw_id)
@@ -255,13 +268,13 @@ class OptInService:
                     return True, self._build_optout_already(), False
                 return False, None, False
 
-            if normalized in {"SI", "NO"}:
+            if normalized in {self.accept_keyword, self.decline_keyword}:
                 if status != "pending":
                     return False, None, False
-                new_status = "accepted" if normalized == "SI" else "declined"
+                new_status = "accepted" if normalized == self.accept_keyword else "declined"
                 self._set_status(channel, identifier, new_status, prompt_text, normalized)
                 self._write_audit_event(channel, identifier, prompt_text, normalized)
-                if normalized == "SI":
+                if normalized == self.accept_keyword:
                     return True, self._build_accepted(), False
                 return True, self._build_declined(), False
 

@@ -20,8 +20,8 @@ def main() -> None:
     prompt = prompt_payload[0] if prompt_payload else None
     print(prompt or "No se pudo enviar el prompt.")
 
-    print("\n== RESPUESTA SI ==")
-    handled, reply, use_buttons = optin_service.handle_inbound_message(test_id, "SI")
+    print("\n== RESPUESTA ACEPTO ==")
+    handled, reply, use_buttons = optin_service.handle_inbound_message(test_id, "ACEPTO")
     print(f"handled={handled} reply={reply} use_buttons={use_buttons}")
 
     print("\n== OPT-OUT BAJA ==")

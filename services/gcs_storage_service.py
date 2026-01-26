@@ -1,10 +1,7 @@
 import os
 import uuid
 import logging
-from typing import Optional
-
-import google.auth
-from google.auth.transport.requests import AuthorizedSession
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +11,14 @@ class GcsStorageService:
         self.bucket_name = os.getenv("GCS_BUCKET_NAME", "").strip()
         self._session = None
 
-    def _get_session(self) -> AuthorizedSession:
+    def _get_session(self) -> Any:
         if self._session is not None:
             return self._session
+        try:
+            import google.auth
+            from google.auth.transport.requests import AuthorizedSession
+        except Exception as exc:
+            raise RuntimeError(f"google-auth not installed: {exc}") from exc
         creds, _ = google.auth.default(
             scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
         )

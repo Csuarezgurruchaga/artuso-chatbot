@@ -9,9 +9,6 @@ from config.company_profiles import get_active_company_profile
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
-from services.error_reporter import error_reporter, ErrorTrigger
-from services.metrics_service import metrics_service
-from services.clients_sheet_service import clients_sheet_service
 
 POST_FINALIZADO_WINDOW_SECONDS = int(os.getenv("POST_FINALIZADO_WINDOW_SECONDS", "120"))
 POST_FINALIZADO_ACK_MESSAGE = os.getenv(
@@ -582,6 +579,8 @@ Responde con el número de la opción que necesitas 📱"""
                 caption_pendiente,
             )
         try:
+            from services.metrics_service import metrics_service
+
             metrics_service.on_intent(tipo_consulta.value)
         except Exception:
             pass
@@ -1379,6 +1378,8 @@ Responde con el número de la opción que necesitas 📱"""
 
     @staticmethod
     def _maybe_prompt_direccion_guardada(numero_telefono: str, contexto: str) -> Optional[str]:
+        from services.clients_sheet_service import clients_sheet_service
+
         if numero_telefono.startswith("messenger:"):
             return None
         conversacion = conversation_manager.get_conversacion(numero_telefono)
@@ -1402,6 +1403,8 @@ Responde con el número de la opción que necesitas 📱"""
 
     @staticmethod
     def _apply_direccion_seleccionada(numero_telefono: str, direccion_item: dict, contexto: str) -> str:
+        from services.clients_sheet_service import clients_sheet_service
+
         direccion = direccion_item.get("direccion", "")
         piso = direccion_item.get("piso_depto", "")
         import logging
@@ -1438,6 +1441,8 @@ Responde con el número de la opción que necesitas 📱"""
 
     @staticmethod
     def _procesar_seleccion_direccion_text(numero_telefono: str, mensaje: str) -> Optional[str]:
+        from services.clients_sheet_service import clients_sheet_service
+
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         contexto = conversacion.datos_temporales.get("_direccion_seleccion_contexto")
         if not contexto:
@@ -1461,6 +1466,8 @@ Responde con el número de la opción que necesitas 📱"""
 
     @staticmethod
     def _procesar_eliminar_direccion_text(numero_telefono: str, mensaje: str) -> Optional[str]:
+        from services.clients_sheet_service import clients_sheet_service
+
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         if not conversacion.datos_temporales.get("_direccion_eliminar_activa"):
             return None
@@ -1501,6 +1508,8 @@ Responde con el número de la opción que necesitas 📱"""
 
     @staticmethod
     def procesar_direccion_interactive(numero_telefono: str, button_id: str) -> Optional[str]:
+        from services.clients_sheet_service import clients_sheet_service
+
         conversacion = conversation_manager.get_conversacion(numero_telefono)
         direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
         contexto = conversacion.datos_temporales.get("_direccion_seleccion_contexto")
@@ -2082,6 +2091,8 @@ Responde con el número de la opción que necesitas 📱"""
                     if not valido:
                         # Reportar validación final fallida como fricción
                         try:
+                            from services.error_reporter import error_reporter, ErrorTrigger
+
                             error_reporter.capture_experience_issue(
                                 ErrorTrigger.VALIDATION_REPEAT,
                                 {
@@ -2372,6 +2383,7 @@ Responde con el número del campo que deseas modificar."""
             
             # Ejecutar metrics en background para no bloquear
             try:
+                from services.metrics_service import metrics_service
                 import threading
                 threading.Thread(target=lambda: metrics_service.on_conversation_started(), daemon=True).start()
             except Exception:
@@ -2509,6 +2521,8 @@ Responde con el número del campo que deseas modificar."""
 
         # Reportar intención no clara (fricción NLU)
         try:
+            from services.error_reporter import error_reporter, ErrorTrigger
+
             error_reporter.capture_experience_issue(
                 ErrorTrigger.NLU_UNCLEAR,
                 {
@@ -2523,6 +2537,8 @@ Responde con el número del campo que deseas modificar."""
         except Exception:
             pass
         try:
+            from services.metrics_service import metrics_service
+
             metrics_service.on_nlu_unclear()
         except Exception:
             pass

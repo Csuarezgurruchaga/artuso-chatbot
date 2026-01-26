@@ -5,8 +5,11 @@ import hashlib
 import logging
 from typing import Dict, Any, List
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+try:
+    from botocore.exceptions import BotoCoreError, ClientError
+except Exception:
+    BotoCoreError = Exception
+    ClientError = Exception
 
 from services.sheets_service import sheets_service
 from config.company_profiles import get_active_company_profile
@@ -87,7 +90,7 @@ class ErrorReporter:
         self.region = os.getenv("AWS_REGION", "us-east-1")
         self.reply_to = os.getenv("REPLY_TO_EMAIL", "").strip()
         self.rate_limiter = InMemoryRateLimiter(window_seconds=int(os.getenv("ERROR_RATE_WINDOW_SEC", "300")))
-        self.ses = boto3.client("ses", region_name=self.region)
+        self._ses = None
 
         if not self.error_email:
             logger.warning("ERROR_LOG_EMAIL not set - error emails disabled")
@@ -99,6 +102,16 @@ class ErrorReporter:
             return False
         unique = "|".join([p for p in key_parts if p]) + "|" + _hash_payload(payload)[:16]
         return self.rate_limiter.allow(unique)
+
+    def _get_ses(self):
+        if self._ses is not None:
+            return self._ses
+        try:
+            import boto3
+        except Exception as exc:
+            raise RuntimeError(f"boto3 not installed: {exc}") from exc
+        self._ses = boto3.client("ses", region_name=self.region)
+        return self._ses
 
     def _build_email(self, subject: str, summary_lines: List[str], details: Dict[str, Any]) -> Dict[str, str]:
         profile = get_active_company_profile()
@@ -146,7 +159,7 @@ class ErrorReporter:
             if self.reply_to:
                 send_kwargs["ReplyToAddresses"] = [self.reply_to]
 
-            resp = self.ses.send_email(**send_kwargs)
+            resp = self._get_ses().send_email(**send_kwargs)
             status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
             if status == 200:
                 logger.info(
@@ -256,5 +269,4 @@ class ErrorReporter:
 
 
 error_reporter = ErrorReporter()
-
 

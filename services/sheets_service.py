@@ -5,12 +5,8 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 
-try:
-    import gspread
-    from google.oauth2.service_account import Credentials
-except Exception:
-    gspread = None
-    Credentials = None
+gspread = None
+Credentials = None
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +57,18 @@ class SheetsService:
             raise ValueError(f'Invalid GOOGLE_SERVICE_ACCOUNT_JSON: {str(e)}')
 
     def _get_client(self):
+        global gspread, Credentials
         now = time.time()
         if self._gc and now - self._last_auth_ts < self._auth_ttl:
             return self._gc
         if gspread is None or Credentials is None:
-            raise RuntimeError('gspread/google-auth not installed')
+            try:
+                import gspread as _gspread
+                from google.oauth2.service_account import Credentials as _Credentials
+            except Exception as exc:
+                raise RuntimeError('gspread/google-auth not installed') from exc
+            gspread = _gspread
+            Credentials = _Credentials
         creds = self._load_credentials()
         self._gc = gspread.authorize(creds)
         self._last_auth_ts = now
@@ -109,5 +112,4 @@ class SheetsService:
 
 
 sheets_service = SheetsService()
-
 

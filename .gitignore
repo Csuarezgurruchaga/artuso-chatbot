@@ -1,3 +1,4 @@
+docs/specs/cloud-run-image-slimming/
 .DS_Store
 .venv/
 .pytest_cache/

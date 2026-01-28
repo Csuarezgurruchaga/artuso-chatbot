@@ -6,7 +6,7 @@ import time
 import logging
 import unicodedata
 from datetime import datetime, date
-from typing import Optional, Iterable, Tuple, Set, Any
+from typing import Optional, Iterable, Tuple, Set, Any, List
 from zoneinfo import ZoneInfo
 
 gspread = None
@@ -33,6 +33,7 @@ EXPENSAS_HEADERS = [
     "COMENTARIO",
     "COMPROBANTE",
 ]
+EXPENSAS_COMPROBANTE_LABEL = "Ver comprobante"
 EXPENSAS_DEFAULT_ROWS = 1000
 EXPENSAS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -156,10 +157,15 @@ class ExpensasSheetService:
         piso_depto_norm = self._normalize_piso_depto(datos.get("piso_depto", ""))
 
         comprobante_raw = datos.get("comprobante", "")
+        comprobante_urls: List[str] = []
         if isinstance(comprobante_raw, list):
-            comprobante_value = "\n".join([url for url in comprobante_raw if url])
+            comprobante_urls = [str(url).strip() for url in comprobante_raw if str(url).strip()]
+            comprobante_value = "\n".join(comprobante_urls)
         else:
             comprobante_value = comprobante_raw or ""
+            raw_str = str(comprobante_value).strip()
+            if raw_str:
+                comprobante_urls = [raw_str]
         row = [
             "ws",  # TIPO AVISO
             fecha_aviso,  # FECHA AVISO
@@ -182,7 +188,13 @@ class ExpensasSheetService:
 
             ws = self._ensure_tab(sh, EXPENSAS_CURRENT_SHEET_NAME, current_title)
             self._ensure_tab(sh, EXPENSAS_PREVIOUS_SHEET_NAME, previous_title)
-            ws.append_row(row, value_input_option="RAW")
+            resp = ws.append_row(row, value_input_option="RAW")
+            self._update_comprobante_links(
+                ws,
+                resp,
+                col_index=len(EXPENSAS_HEADERS),
+                urls=comprobante_urls,
+            )
             logger.info("Expensas append OK para %s", conversacion.numero_telefono)
             return True
         except Exception as e:
@@ -200,6 +212,7 @@ class ExpensasSheetService:
         normalized = unicodedata.normalize("NFD", text.lower().strip())
         normalized = "".join(c for c in normalized if unicodedata.category(c) != "Mn")
         normalized = re.sub(r"[.,]", " ", normalized)
+        normalized = re.sub(r"\bsantafe\b", "santa fe", normalized)
         normalized = re.sub(r"\bavda\.?\b", "avenida", normalized)
         normalized = re.sub(r"\bav\.?\b", "avenida", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
@@ -212,6 +225,14 @@ class ExpensasSheetService:
         normalized = normalized.strip()
         normalized = re.sub(r"^avenida\s+", "", normalized).strip()
         return normalized
+
+    @staticmethod
+    def _street_token_set(normalized: str) -> Set[str]:
+        if not normalized:
+            return set()
+        stopwords = {"de", "del", "la", "el", "los", "las"}
+        tokens = [token for token in normalized.split() if token]
+        return {token for token in tokens if token not in stopwords}
 
     @staticmethod
     def _normalize_piso_depto(text: str) -> str:
@@ -243,8 +264,32 @@ class ExpensasSheetService:
         apply_expensas_title_and_headers(ws, title_text)
         return ws
 
-    def _update_comprobante_link(self, ws, resp, col_index: int, url: str) -> None:
+    @staticmethod
+    def _escape_sheet_string(value: str) -> str:
+        return value.replace('"', '""')
+
+    @classmethod
+    def _build_comprobante_hyperlink_formula(cls, urls: List[str]) -> str:
+        safe_urls = [str(url).strip() for url in urls if str(url).strip()]
+        safe_urls = [url for url in safe_urls if url.startswith("http://") or url.startswith("https://")]
+        if not safe_urls:
+            return ""
+        if len(safe_urls) == 1:
+            url = cls._escape_sheet_string(safe_urls[0])
+            label = cls._escape_sheet_string(EXPENSAS_COMPROBANTE_LABEL)
+            return f'=HYPERLINK("{url}";"{label}")'
+        parts = []
+        for idx, url_raw in enumerate(safe_urls, 1):
+            url = cls._escape_sheet_string(url_raw)
+            label = cls._escape_sheet_string(f"{EXPENSAS_COMPROBANTE_LABEL} {idx}")
+            parts.append(f'HYPERLINK("{url}";"{label}")')
+        return "=" + "&CHAR(10)&".join(parts)
+
+    def _update_comprobante_links(self, ws, resp, col_index: int, urls: List[str]) -> None:
         try:
+            formula = self._build_comprobante_hyperlink_formula(urls)
+            if not formula:
+                return
             updated_range = resp.get("updates", {}).get("updatedRange", "")
             match = re.search(r"!([A-Z]+)(\d+)", updated_range)
             if not match:
@@ -253,7 +298,6 @@ class ExpensasSheetService:
             row_index = int(match.group(2))
             col_letter = self._column_letter(col_index)
             cell_range = f"{col_letter}{row_index}"
-            formula = f'=HYPERLINK("{url}";"COMPROBANTE")'
             ws.update(
                 [[formula]],
                 range_name=cell_range,
@@ -332,30 +376,45 @@ class ExpensasSheetService:
         input_full_norm_wo_avenida = self._strip_avenida_prefix(input_full_norm)
 
         for code, raw_address in address_map.items():
-            raw_str = str(raw_address)
-            mapped_clean = self._strip_localidad_tokens(raw_str)
-            mapped_street_raw, mapped_numbers = self._extract_numbers_from_raw(mapped_clean)
-            mapped_street_norm = self._normalize_address_text(mapped_street_raw)
-            mapped_full_norm = self._normalize_address_text(mapped_clean)
-            mapped_street_norm_wo_avenida = self._strip_avenida_prefix(mapped_street_norm)
-            mapped_full_norm_wo_avenida = self._strip_avenida_prefix(mapped_full_norm)
+            candidates = raw_address if isinstance(raw_address, (list, tuple, set)) else [raw_address]
+            for candidate in candidates:
+                raw_str = str(candidate).strip()
+                if not raw_str:
+                    continue
 
-            same_street = input_street_norm == mapped_street_norm
-            same_street = same_street or (
-                input_street_norm_wo_avenida
-                and input_street_norm_wo_avenida == mapped_street_norm_wo_avenida
-            )
-            if input_numbers and mapped_numbers and same_street:
-                if any(num in mapped_numbers for num in input_numbers):
+                mapped_clean = self._strip_localidad_tokens(raw_str)
+                mapped_street_raw, mapped_numbers = self._extract_numbers_from_raw(mapped_clean)
+                mapped_street_norm = self._normalize_address_text(mapped_street_raw)
+                mapped_full_norm = self._normalize_address_text(mapped_clean)
+                mapped_street_norm_wo_avenida = self._strip_avenida_prefix(mapped_street_norm)
+                mapped_full_norm_wo_avenida = self._strip_avenida_prefix(mapped_full_norm)
+
+                same_street = input_street_norm == mapped_street_norm
+                same_street = same_street or (
+                    input_street_norm_wo_avenida
+                    and input_street_norm_wo_avenida == mapped_street_norm_wo_avenida
+                )
+                if not same_street:
+                    input_tokens = self._street_token_set(
+                        input_street_norm_wo_avenida or input_street_norm
+                    )
+                    mapped_tokens = self._street_token_set(
+                        mapped_street_norm_wo_avenida or mapped_street_norm
+                    )
+                    if mapped_tokens and mapped_tokens.issubset(input_tokens):
+                        same_street = True
+
+                if input_numbers and mapped_numbers and same_street:
+                    if any(num in mapped_numbers for num in input_numbers):
+                        return self._coerce_code(code)
+
+                if input_full_norm and input_full_norm == mapped_full_norm:
                     return self._coerce_code(code)
-
-            if input_full_norm and input_full_norm == mapped_full_norm:
-                return self._coerce_code(code)
-            if (
-                input_full_norm_wo_avenida
-                and input_full_norm_wo_avenida == mapped_full_norm_wo_avenida
-            ):
-                return self._coerce_code(code)
+                if (
+                    input_full_norm_wo_avenida
+                    and input_full_norm_wo_avenida == mapped_full_norm_wo_avenida
+                ):
+                    return self._coerce_code(code)
 
         return None
 

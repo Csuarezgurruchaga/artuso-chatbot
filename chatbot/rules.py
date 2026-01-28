@@ -961,8 +961,7 @@ Responde con el número de la opción que necesitas 📱"""
         
         logger = logging.getLogger(__name__)
         
-        # Verificar si los botones interactivos están habilitados
-        use_interactive_buttons = os.getenv("USE_INTERACTIVE_BUTTONS", "false").lower() == "true"
+        use_interactive_buttons = True
         
         # Función que envía TODO secuencialmente en background
         def enviar_todo_secuencial():

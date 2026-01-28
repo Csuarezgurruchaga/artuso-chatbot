@@ -27,7 +27,10 @@ class SurveyService:
     """
     
     def __init__(self):
-        self.enabled = os.getenv('SUMMARY', 'false').lower() == 'true'
+        enabled_env = os.getenv("ENABLE_POST_HANDOFF_SURVEY")
+        if enabled_env is None:
+            enabled_env = os.getenv("SUMMARY", "false")
+        self.enabled = enabled_env.lower() == "true"
         self.survey_sheet_name = os.getenv('SHEETS_SURVEY_SHEET_NAME', 'ENCUESTA_RESULTADOS')
         
         # Definir las preguntas de la encuesta

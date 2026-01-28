@@ -41,15 +41,15 @@ META_WA_VERIFY_TOKEN=<verify_token>
 
 ### 4. Resolution (Mejorado)
 - Para finalizar la conversación, el agente envía: `ok`, `listo`, `/r`, etc.
-- Si `SUMMARY=true` está habilitado, se envía encuesta de satisfacción
-- Si `SUMMARY=false` o no está configurado, la conversación se cierra inmediatamente
+- Si `ENABLE_POST_HANDOFF_SURVEY=true` está habilitado, se envía encuesta de satisfacción
+- Si `ENABLE_POST_HANDOFF_SURVEY=false` o no está configurado, la conversación se cierra inmediatamente
 - El agente continúa con la siguiente persona en cola (si la hay)
 
 ## Agent Commands
 
 | Command | Description |
 |---------|-------------|
-| `/resuelto`, `/r` | Cierra la conversación activa y ofrece encuesta si `SUMMARY=true` |
+| `/resuelto`, `/r` | Cierra la conversación activa y ofrece encuesta si `ENABLE_POST_HANDOFF_SURVEY=true` |
 | `ok`, `listo`, `done` | Comandos naturales para resolución |
 | `/resolved`, `/cerrar`, `/close`, `/fin`, `/end` | Alias para resolución |
 
@@ -64,7 +64,8 @@ META_WA_VERIFY_TOKEN=<verify_token>
 ### Configuración
 Para habilitar la encuesta de satisfacción post-handoff, configurar:
 ```bash
-SUMMARY=true
+ENABLE_POST_HANDOFF_SURVEY=true
+# (Legacy) SUMMARY=true  # deprecated
 SHEETS_SURVEY_SHEET_NAME=ENCUESTA_RESULTADOS
 ```
 
@@ -107,15 +108,15 @@ Bot → Client: "👨‍💼 Agente: Hola Juan, ¿en qué puedo ayudarte?"
 Bot → Agent: "✅ Mensaje enviado al cliente +5491123456789"
 
 Agent → Bot: "/r"
-# Si SUMMARY=true:
+# Si ENABLE_POST_HANDOFF_SURVEY=true:
 Bot → Client: "¡Gracias por tu consulta, Juan! 🙏\n\n¿Nos ayudas con 3 preguntas rápidas? (toma menos de 1 minuto)\nTu opinión es muy valiosa para mejorar nuestro servicio.\n\n1️⃣ Sí, con gusto\n2️⃣ No, gracias\n\nSi no respondes en 2 minutos, cerraremos la conversación automáticamente."
 Bot → Agent: "✅ Cierre enviado a Juan (+5491123456789). ⏳ Encuesta en curso (auto-cierre 15 min). Usa /queue o /next."
 
-# Si SUMMARY=false:
+# Si ENABLE_POST_HANDOFF_SURVEY=false:
 Bot → Client: "¡Gracias por tu consulta! Damos por finalizada esta conversación. ✅"
 Bot → Agent: "✅ Cierre enviado a Juan (+5491123456789). Usa /queue o /next."
 
-# Flujo de encuesta (si SUMMARY=true):
+# Flujo de encuesta (si ENABLE_POST_HANDOFF_SURVEY=true):
 Client → Bot: "1"
 Bot → Client: "¡Perfecto! Comencemos:\n\n¿Pudiste resolver el motivo por el cuál te comunicaste?\n\n1️⃣ Sí\n2️⃣ Parcialmente\n3️⃣ No"
 

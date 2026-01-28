@@ -50,8 +50,16 @@ def test_address_synonyms_map_to_same_code():
     try:
         service = ExpensasSheetService()
         synonyms = {
+            2: ["Drago 438", "Luis María Drago 438"],
             30: ["Av Santa Fe 2647", "Av. Santa Fe 2647", "Santa Fe 2647"],
-            43: ["Santa Fe 2638", "Av Santa Fe 2638", "Av. Santa Fe 2638"],
+            43: [
+                "Santa Fe 2638",
+                "Santafe 2638",
+                "Av Santa Fe 2638",
+                "Av. Santa fe 2638",
+                "Av.Santa Fe 2638",
+            ],
+            48: ["Palestina 580", "Estado de Palestina 580"],
             9: ["Av Cordoba 785", "Av. Córdoba 785", "Córdoba 785"],
             10: [
                 "Av Entre Rios 1005",
@@ -60,6 +68,36 @@ def test_address_synonyms_map_to_same_code():
                 "Entre Rios 1005",
             ],
             44: ["Rivadavia 4350", "Av Rivadavia 4350", "Av. Rivadavia 4350"],
+            8: [
+                "Perón 1875",
+                "Tte. Gral. Juan Domingo Perón 1875",
+                "Juan domingo Perón 1875",
+                "J D Perón 1875",
+                "J. D. Perón 1875",
+                "Teniente Gral. Juan Domingo Perón 1875",
+                "tte gral j d peron 1875",
+            ],
+            31: [
+                "Perón 1617/21",
+                "Tte. Gral. Juan Domingo Perón 1617",
+                "Juan domingo Perón 1617",
+                "J D Perón 1617",
+                "J. D. Perón 1617",
+                "Teniente Gral. Juan Domingo Perón 1617",
+                "tte gral j d peron 1617",
+                "Tte. Gral. Juan Domingo Perón 1621",
+                "Juan domingo Perón 1621",
+                "J D Perón 1621",
+                "J. D. Perón 1621",
+                "Teniente Gral. Juan Domingo Perón 1621",
+                "tte gral j d peron 1621",
+                "Tte. Gral. Juan Domingo Perón 1617/1621",
+                "Juan domingo Perón 1617/1621",
+                "J D Perón 1617/1621",
+                "J. D. Perón 1617/1621",
+                "Teniente Gral. Juan Domingo Perón 1617/1621",
+                "tte gral j d peron 1617/1621",
+            ],
         }
 
         for code, variants in synonyms.items():

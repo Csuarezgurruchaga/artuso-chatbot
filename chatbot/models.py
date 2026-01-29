@@ -14,6 +14,7 @@ class EstadoConversacion(str, Enum):
     RECOLECTANDO_DATOS = "recolectando_datos"
     RECOLECTANDO_DATOS_INDIVIDUALES = "recolectando_datos_individuales"
     RECOLECTANDO_SECUENCIAL = "recolectando_secuencial"  # Nuevo flujo paso a paso conversacional
+    ELIMINANDO_DIRECCION_GUARDADA = "eliminando_direccion_guardada"
     VALIDANDO_UBICACION = "validando_ubicacion"
     VALIDANDO_DATOS = "validando_datos"
     CONFIRMANDO = "confirmando"

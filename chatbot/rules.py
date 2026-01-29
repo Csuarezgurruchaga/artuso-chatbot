@@ -1020,6 +1020,11 @@ Responde con el número de la opción que necesitas 📱"""
                     # Enviar menú con botones interactivos
                     success = ChatbotRules.send_menu_interactivo(numero_telefono, nombre_usuario)
                     tipo_menu = "interactivo"
+                    if not success:
+                        # Fallback: enviar menú tradicional si falla el interactivo
+                        mensaje_completo = ChatbotRules.get_mensaje_inicial_personalizado(nombre_usuario)
+                        success = meta_whatsapp_service.send_text_message(numero_telefono, mensaje_completo)
+                        tipo_menu = "tradicional_fallback"
                 else:
                     # Enviar menú tradicional
                     mensaje_completo = ChatbotRules.get_mensaje_inicial_personalizado(nombre_usuario)
@@ -1177,6 +1182,38 @@ Responde con el número de la opción que necesitas 📱"""
     def _get_pregunta_campo_secuencial(campo: str, tipo_consulta: TipoConsulta = None) -> str:
         """Preguntas específicas para el flujo secuencial"""
         return ChatbotRules._get_pregunta_campo_individual(campo, tipo_consulta)
+
+    @staticmethod
+    def _parece_direccion_con_unidad(texto: str) -> bool:
+        """
+        Heurística barata para detectar que el usuario mezcló dirección + unidad (piso/depto/UF/cochera/oficina/local).
+        Se usa para decidir si vale la pena llamar a OpenAI.
+        """
+        if not texto:
+            return False
+        t = texto.lower()
+
+        # Keywords explícitas (alta señal)
+        if re.search(
+            r"\b(piso|p|depto|dpto|dto|departamento|uf|u\.f\.|unidad\s+funcional|cochera|garage|garaje|local|oficina|of\.)\b",
+            t,
+        ):
+            return True
+
+        # Señales comunes de piso/depto sin keyword (ej: "2° A", "9o Dto B", "4toA")
+        if re.search(r"\b(pb|p\.?b\.?)\b", t):
+            return True
+        if re.search(r"\b\d{1,2}\s*[°º]\s*[a-z]{1,2}\b", t):
+            return True
+        if re.search(r"\b\d{1,2}\s*(?:o|to|ta)\s*[a-z]{1,2}\b", t):
+            return True
+        if re.search(r"\b\d{1,2}(?:o|to|ta)\s*[a-z]{1,2}\b", t):
+            return True
+        # Caso "2 A" al final (muy común en unidades)
+        if re.search(r"(?:,|\s)\s*\d{1,2}\s*[a-z]{1,2}\s*\.?\s*$", t):
+            return True
+
+        return False
 
     @staticmethod
     def _extraer_piso_depto_de_direccion(direccion: str) -> tuple[str, Optional[str]]:
@@ -1837,6 +1874,22 @@ Responde con el número de la opción que necesitas 📱"""
         elif campo_actual == 'direccion' and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             direccion_base = valor
             direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+
+            if ChatbotRules._parece_direccion_con_unidad(valor):
+                try:
+                    from services.nlu_service import nlu_service, NLUService
+
+                    parsed = nlu_service.extraer_direccion_unidad(valor)
+                    if parsed:
+                        llm_base = (parsed.get("direccion_altura") or "").strip()
+                        llm_sugerido = NLUService.construir_unidad_sugerida(parsed)
+                        if llm_base and ChatbotRules._direccion_valida(llm_base):
+                            direccion_base = llm_base
+                        if llm_sugerido:
+                            sugerido = llm_sugerido
+                except Exception:
+                    pass
+
             logger.info(
                 "Direccion parse: phone=%s base=%s sugerido=%s",
                 numero_telefono,
@@ -1865,6 +1918,22 @@ Responde con el número de la opción que necesitas 📱"""
         elif campo_actual == 'direccion_servicio' and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             direccion_base = valor
             direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+
+            if ChatbotRules._parece_direccion_con_unidad(valor):
+                try:
+                    from services.nlu_service import nlu_service, NLUService
+
+                    parsed = nlu_service.extraer_direccion_unidad(valor)
+                    if parsed:
+                        llm_base = (parsed.get("direccion_altura") or "").strip()
+                        llm_sugerido = NLUService.construir_unidad_sugerida(parsed)
+                        if llm_base and ChatbotRules._direccion_valida(llm_base):
+                            direccion_base = llm_base
+                        if llm_sugerido:
+                            sugerido = llm_sugerido
+                except Exception:
+                    pass
+
             logger.info(
                 "Direccion servicio parse: phone=%s base=%s sugerido=%s",
                 numero_telefono,

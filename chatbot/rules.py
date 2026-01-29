@@ -1568,6 +1568,15 @@ Responde con el número de la opción que necesitas 📱"""
             conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_return_mode", None)
             conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
 
+            # Restore prior state if possible.
+            prev_estado_raw = conversacion.datos_temporales.get("_direccion_eliminar_prev_estado")
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_prev_estado", None)
+            if prev_estado_raw:
+                try:
+                    conversation_manager.update_estado(numero_telefono, EstadoConversacion(prev_estado_raw))
+                except Exception:
+                    pass
+
             refreshed = clients_sheet_service.get_direcciones(numero_telefono)
             conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", refreshed)
             conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", contexto)

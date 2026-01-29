@@ -9,15 +9,16 @@ from services.nlu_service import nlu_service, NLUService
 
 
 EXAMPLES = [
-    "Sarmiento1922 4toA",
-    "Lavalle 1282 piso 1 oficina 8 y 10",
-    "Lavalle 1282 1 piso of 1",
-    "Lavalle 1282, uf 27, uf 28 y",
-    "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto Vicente",
-    "Calle Paraguay 2957, departamento 7D. Barrios Recoleta, Ciudad autónoma de Buenos Aires,",
-    "Guemes 3972 Piso 9o Dto B",
-    "Av.Santa Fe 2647 .. piso 2 depto D",
-    "Ortiz de Ocampo 2561, 2 A.",
+    "Av entre Ríos 2020 2E unidad funcional 2"
+    # "Sarmiento1922 4toA",
+    # "Lavalle 1282 piso 1 oficina 8 y 10",
+    # "Lavalle 1282 1 piso of 1",
+    # "Lavalle 1282, uf 27, uf 28 y",
+    # "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto Vicente",
+    # "Calle Paraguay 2957, departamento 7D. Barrios Recoleta, Ciudad autónoma de Buenos Aires,",
+    # "Guemes 3972 Piso 9o Dto B",
+    # "Av.Santa Fe 2647 .. piso 2 depto D",
+    # "Ortiz de Ocampo 2561, 2 A.",
 ]
 
 

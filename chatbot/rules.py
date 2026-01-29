@@ -1195,9 +1195,13 @@ Responde con el número de la opción que necesitas 📱"""
 
         # Keywords explícitas (alta señal)
         if re.search(
-            r"\b(piso|p|depto|dpto|dto|departamento|uf|u\.f\.|unidad\s+funcional|cochera|garage|garaje|local|oficina|of\.)\b",
+            r"\b(piso|p|depto|dpto|dto|departamento|uf|u\.f\.|unidad\s+funcional|cochera|garage|garaje|local|oficina|of\.|ofic\.?)\b",
             t,
         ):
+            return True
+
+        # Caso abreviado: "unidad 2"
+        if re.search(r"\bunidad\s*#?\s*\d{1,5}\b", t):
             return True
 
         # Señales comunes de piso/depto sin keyword (ej: "2° A", "9o Dto B", "4toA")
@@ -1271,9 +1275,26 @@ Responde con el número de la opción que necesitas 📱"""
 
         logger = logging.getLogger(__name__)
 
-        body_text = f"Detecté piso/depto: {sugerido}. ¿Querés usarlo?"
+        body_text = f"Detecté unidad: {sugerido}. ¿Querés usarla?"
+
+        def _button_title_from_sugerido(texto: str) -> str:
+            # WhatsApp corta a 20 chars en title; intentar conservar 1–2 componentes.
+            raw = (texto or "").strip()
+            if not raw:
+                return "Usar"
+            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            if not parts:
+                return raw[:20]
+            title = parts[0]
+            if len(parts) <= 1:
+                return title[:20]
+            candidate = f"{parts[0]}, {parts[1]}"
+            if len(candidate) <= 20:
+                return candidate
+            return title[:20]
+
         buttons = [
-            {"id": "piso_depto_usar", "title": f"{sugerido}"},
+            {"id": "piso_depto_usar", "title": _button_title_from_sugerido(sugerido)},
             {"id": "piso_depto_otro", "title": "Otro"},
         ]
 

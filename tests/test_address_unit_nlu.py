@@ -37,7 +37,7 @@ def test_construir_unidad_sugerida() -> None:
         "es_local": False,
         "unidad_extra": "",
     }
-    assert NLUService.construir_unidad_sugerida(parsed) == "Piso 1, Oficina 8 y 10"
+    assert NLUService.construir_unidad_sugerida(parsed) == "Piso 1, Of 8, Of 10"
 
     parsed = {
         "direccion_altura": "Lavalle 1282",
@@ -49,7 +49,7 @@ def test_construir_unidad_sugerida() -> None:
         "es_local": False,
         "unidad_extra": "",
     }
-    assert NLUService.construir_unidad_sugerida(parsed) == "UF 27 y 28, Cochera 1 y 2"
+    assert NLUService.construir_unidad_sugerida(parsed) == "Uf 27, Uf 28, Cochera 1, Cochera 2"
 
     parsed = {
         "direccion_altura": "Sarmiento 1922",
@@ -63,7 +63,7 @@ def test_construir_unidad_sugerida() -> None:
     }
     assert (
         NLUService.construir_unidad_sugerida(parsed)
-        == "Piso 2, Depto A, UF 6 (a nombre de Diego Alberto Vicente)"
+        == "2A, Uf 6 (a nombre de Diego Alberto Vicente)"
     )
 
     parsed = {"es_local": True}
@@ -78,9 +78,15 @@ def test_extract_oficinas_from_raw() -> None:
     assert NLUService._extract_oficinas_from_raw("ofic 7") == ["7"]
     assert NLUService._extract_oficinas_from_raw("ofic. 7") == ["7"]
 
+def test_extract_ufs_from_raw() -> None:
+    assert NLUService._extract_ufs_from_raw("uf 2") == ["2"]
+    assert NLUService._extract_ufs_from_raw("unidad funcional 6") == ["6"]
+    assert NLUService._extract_ufs_from_raw("unidad 2") == ["2"]
+
 
 if __name__ == "__main__":
     test_trigger_heuristica()
     test_construir_unidad_sugerida()
     test_extract_oficinas_from_raw()
+    test_extract_ufs_from_raw()
     print("OK")

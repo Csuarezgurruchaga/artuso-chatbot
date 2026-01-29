@@ -219,6 +219,31 @@ class NLUService:
         return NLUService._unique_keep_order(results)
 
     @staticmethod
+    def _extract_ufs_from_raw(text: str) -> list[str]:
+        """
+        Fallback local para "uf 2" y el caso solicitado "unidad 2" (equivalente a UF 2).
+        """
+        if not text:
+            return []
+        normalized = _normalize_text(text)
+
+        results: list[str] = []
+
+        # "uf 2", "u.f. 2", "unidad funcional 2"
+        for match in re.finditer(
+            r"\b(?:uf|u\.?f\.?|unidad\s+funcional)\s*#?\s*([0-9]{1,5})\b",
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            results.append(match.group(1))
+
+        # Caso abreviado: "unidad 2" => UF 2
+        for match in re.finditer(r"\bunidad\s*#?\s*([0-9]{1,5})\b", normalized):
+            results.append(match.group(1))
+
+        return NLUService._unique_keep_order(results)
+
+    @staticmethod
     def _normalize_piso(value: str) -> str:
         raw = (value or "").strip()
         if not raw:
@@ -266,16 +291,23 @@ class NLUService:
         unidad_extra = str(parsed.get("unidad_extra", "") or "").strip()
 
         parts: list[str] = []
-        if piso:
-            parts.append(f"Piso {piso}")
-        if depto:
-            parts.append(f"Depto {depto}")
-        if ufs:
-            parts.append("UF " + " y ".join(ufs))
-        if cocheras:
-            parts.append("Cochera " + " y ".join(cocheras))
-        if oficinas:
-            parts.append("Oficina " + " y ".join(oficinas))
+
+        # Piso/Depto: compacto "2A" si hay ambos
+        if piso and depto:
+            parts.append(f"{piso}{depto}")
+        else:
+            if piso:
+                parts.append(f"Piso {piso}")
+            if depto:
+                parts.append(f"Depto {depto}")
+
+        # Listas: repetir prefijo por item ("Uf 27, Uf 28", "Cochera 1, Cochera 2", "Of 1, Of 2")
+        for uf in ufs:
+            parts.append(f"Uf {uf}")
+        for cochera in cocheras:
+            parts.append(f"Cochera {cochera}")
+        for oficina in oficinas:
+            parts.append(f"Of {oficina}")
         if es_local:
             parts.append("Local")
 
@@ -330,6 +362,12 @@ class NLUService:
                 oficinas = self._extract_oficinas_from_raw(mensaje_usuario)
                 if oficinas:
                     sanitized["oficinas"] = oficinas
+
+            # Fallback: extraer "unidad 2" como UF 2 si el LLM no lo capturó.
+            if not sanitized["ufs"]:
+                ufs = self._extract_ufs_from_raw(mensaje_usuario)
+                if ufs:
+                    sanitized["ufs"] = ufs
 
             return sanitized
         except Exception as e:

@@ -1276,7 +1276,7 @@ Responde con el número de la opción que necesitas 📱"""
             label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
             lines.append(f"{idx}. {label}")
         lines.append(f"{len(direcciones) + 1}. Otra Direccion")
-        lines.append("\nResponde con el numero de la opcion.")
+        lines.append('\nResponde con el numero de la opcion o escribe "eliminar", para borrar una direccion.')
         return "\n".join(lines)
 
     @staticmethod
@@ -1336,7 +1336,7 @@ Responde con el número de la opción que necesitas 📱"""
         for idx, item in enumerate(direcciones, start=1):
             label = ChatbotRules._format_direccion_label(item.get("direccion", ""), item.get("piso_depto", ""))
             lines.append(f"{idx}. {label}")
-        lines.append("\nResponde con el numero de la opcion.")
+        lines.append('\nEscribi el numero de la direccion que queres eliminar o "cancelar".')
         return "\n".join(lines)
 
     @staticmethod
@@ -1468,10 +1468,22 @@ Responde con el número de la opción que necesitas 📱"""
         return ChatbotRules._get_pregunta_campo_secuencial(siguiente, conversation_manager.get_conversacion(numero_telefono).tipo_consulta)
 
     @staticmethod
-    def _prompt_eliminar_direccion(numero_telefono: str, direcciones: list, contexto: str) -> Optional[str]:
+    def _prompt_eliminar_direccion(
+        numero_telefono: str,
+        direcciones: list,
+        contexto: str,
+        *,
+        return_mode: str,
+    ) -> Optional[str]:
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", contexto)
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", True)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_return_mode", return_mode)
         conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", direcciones)
+        # Track previous state so we can restore it after leaving delete mode.
+        prev_estado = conversation_manager.get_conversacion(numero_telefono).estado
+        prev_estado_value = prev_estado.value if hasattr(prev_estado, "value") else str(prev_estado)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_prev_estado", prev_estado_value)
+        conversation_manager.update_estado(numero_telefono, EstadoConversacion.ELIMINANDO_DIRECCION_GUARDADA)
         return ChatbotRules._build_eliminar_fallback_text(direcciones)
 
     @staticmethod
@@ -1492,6 +1504,14 @@ Responde con el número de la opción que necesitas 📱"""
             )
         if not direcciones:
             return None
+        # Allow user to enter delete mode from the selection screen without calling NLU.
+        if ChatbotRules._normalize_seleccion_texto(mensaje) == "eliminar":
+            return ChatbotRules._prompt_eliminar_direccion(
+                numero_telefono,
+                direcciones,
+                contexto,
+                return_mode="selection",
+            )
         seleccion = ChatbotRules._parse_direccion_seleccion(mensaje, len(direcciones))
         if seleccion is None:
             return ChatbotRules._build_direccion_fallback_text(direcciones)
@@ -1507,33 +1527,135 @@ Responde con el número de la opción que necesitas 📱"""
         if not conversacion.datos_temporales.get("_direccion_eliminar_activa"):
             return None
         direcciones = conversacion.datos_temporales.get("_direcciones_guardadas", []) or []
+        normalized = ChatbotRules._normalize_seleccion_texto(mensaje)
+        if normalized in {"cancelar", "volver"}:
+            # Exit delete mode back to address selection.
+            contexto = conversacion.datos_temporales.get("_direccion_eliminar_contexto", "expensas")
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_return_mode", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+
+            # Restore prior state if possible.
+            prev_estado_raw = conversacion.datos_temporales.get("_direccion_eliminar_prev_estado")
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_prev_estado", None)
+            if prev_estado_raw:
+                try:
+                    conversation_manager.update_estado(numero_telefono, EstadoConversacion(prev_estado_raw))
+                except Exception:
+                    pass
+
+            refreshed = clients_sheet_service.get_direcciones(numero_telefono)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", refreshed)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", contexto)
+            return ChatbotRules._build_direccion_fallback_text(refreshed)
+
         if not mensaje.strip().isdigit():
             return ChatbotRules._build_eliminar_fallback_text(direcciones)
         idx = int(mensaje.strip()) - 1
         if idx < 0 or idx >= len(direcciones):
             return ChatbotRules._build_eliminar_fallback_text(direcciones)
+
         contexto = conversacion.datos_temporales.get("_direccion_eliminar_contexto", "expensas")
+        return_mode = conversacion.datos_temporales.get("_direccion_eliminar_return_mode", "new_address")
+        deleted_item = direcciones[idx] if 0 <= idx < len(direcciones) else {}
+
         removed = clients_sheet_service.remove_direccion(numero_telefono, idx)
         if not removed:
-            return "No pude eliminar esa direccion. Por favor intenta de nuevo."
+            # Sheets failure / write denied / other errors.
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_return_mode", None)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+
+            # Restore prior state if possible.
+            prev_estado_raw = conversacion.datos_temporales.get("_direccion_eliminar_prev_estado")
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_prev_estado", None)
+            if prev_estado_raw:
+                try:
+                    conversation_manager.update_estado(numero_telefono, EstadoConversacion(prev_estado_raw))
+                except Exception:
+                    pass
+
+            refreshed = clients_sheet_service.get_direcciones(numero_telefono)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", refreshed)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", contexto)
+            return "No pude eliminarla ahora, intenta mas tarde\n\n" + ChatbotRules._build_direccion_fallback_text(refreshed)
+
         import logging
         logger = logging.getLogger(__name__)
-        logger.info("direccion_eliminada phone=%s", numero_telefono)
+        label = ChatbotRules._format_direccion_label(
+            deleted_item.get("direccion", ""),
+            deleted_item.get("piso_depto", ""),
+        )
+        logger.info("direccion_eliminada phone=%s direccion=%s", numero_telefono, label)
+
+        # Exit delete mode
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_activa", None)
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_contexto", None)
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_return_mode", None)
         conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
+
+        # Restore prior state if possible.
+        prev_estado_raw = conversacion.datos_temporales.get("_direccion_eliminar_prev_estado")
+        conversation_manager.set_datos_temporales(numero_telefono, "_direccion_eliminar_prev_estado", None)
+        if prev_estado_raw:
+            try:
+                conversation_manager.update_estado(numero_telefono, EstadoConversacion(prev_estado_raw))
+            except Exception:
+                pass
+
+        confirm_msg = f"Direccion eliminada: {label}".rstrip()
+
+        # If the deleted address was selected in this conversation, reset selected fields and re-list.
+        if contexto == "expensas":
+            if (
+                ChatbotRules._normalize_seleccion_texto(conversacion.datos_temporales.get("direccion", ""))
+                == ChatbotRules._normalize_seleccion_texto(deleted_item.get("direccion", ""))
+                and ChatbotRules._normalize_seleccion_texto(conversacion.datos_temporales.get("piso_depto", ""))
+                == ChatbotRules._normalize_seleccion_texto(deleted_item.get("piso_depto", ""))
+            ):
+                conversation_manager.set_datos_temporales(numero_telefono, "direccion", None)
+                conversation_manager.set_datos_temporales(numero_telefono, "piso_depto", None)
+        else:
+            if (
+                ChatbotRules._normalize_seleccion_texto(conversacion.datos_temporales.get("direccion_servicio", ""))
+                == ChatbotRules._normalize_seleccion_texto(deleted_item.get("direccion", ""))
+                and ChatbotRules._normalize_seleccion_texto(conversacion.datos_temporales.get("piso_depto", ""))
+                == ChatbotRules._normalize_seleccion_texto(deleted_item.get("piso_depto", ""))
+            ):
+                conversation_manager.set_datos_temporales(numero_telefono, "direccion_servicio", None)
+                conversation_manager.set_datos_temporales(numero_telefono, "piso_depto", None)
+
+        refreshed = clients_sheet_service.get_direcciones(numero_telefono)
+
+        if return_mode == "selection":
+            if not refreshed:
+                # No addresses left: proceed as if user chose "Otra Direccion".
+                conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
+                campo = "direccion" if contexto == "expensas" else "direccion_servicio"
+                return confirm_msg + "\n\n" + ChatbotRules._get_pregunta_campo_secuencial(campo, conversacion.tipo_consulta)
+
+            conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", refreshed)
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", contexto)
+            return confirm_msg + "\n\n" + ChatbotRules._build_direccion_fallback_text(refreshed)
+
+        # Legacy/limit flow: after deletion, continue asking for a new address.
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
-        return ChatbotRules._get_pregunta_campo_secuencial(
-            "direccion" if contexto == "expensas" else "direccion_servicio",
-            conversacion.tipo_consulta,
-        )
+        campo = "direccion" if contexto == "expensas" else "direccion_servicio"
+        return confirm_msg + "\n\n" + ChatbotRules._get_pregunta_campo_secuencial(campo, conversacion.tipo_consulta)
 
     @staticmethod
     def _procesar_direccion_otro(numero_telefono: str, contexto: str, direcciones: list) -> str:
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_seleccion_contexto", None)
         conversation_manager.set_datos_temporales(numero_telefono, "_direcciones_guardadas", None)
         if len(direcciones) >= ChatbotRules.MAX_DIRECCIONES_GUARDADAS:
-            prompt = ChatbotRules._prompt_eliminar_direccion(numero_telefono, direcciones, contexto)
+            prompt = ChatbotRules._prompt_eliminar_direccion(
+                numero_telefono,
+                direcciones,
+                contexto,
+                return_mode="new_address",
+            )
             return prompt or ""
         conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", True)
         return ChatbotRules._get_pregunta_campo_secuencial(

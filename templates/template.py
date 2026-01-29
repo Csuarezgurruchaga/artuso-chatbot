@@ -71,6 +71,65 @@ Output: {{ "{" }}"tipo_consulta": "SOLICITAR_SERVICIO", "tipo_servicio": "Filtra
 Responde ÚNICAMENTE con JSON válido, sin texto adicional.
 """)
 
+NLU_DIRECCION_UNIDAD_PROMPT = Template(r"""
+Sos un extractor de datos para administración de consorcios (Argentina).
+
+Analiza este texto del usuario y separa:
+1) "direccion_altura": SOLO calle/avenida + número (sin piso/depto/UF/cochera/oficina/local, sin barrio/ciudad/provincia).
+2) Datos de "unidad" (piso/depto/UF/cochera/oficina/local), soportando múltiples valores.
+
+Input:
+"{{mensaje_usuario}}"
+
+REGLAS CRÍTICAS:
+- Respondé ÚNICAMENTE con JSON válido (sin texto, sin comillas triples, sin markdown).
+- Conservadurismo: si no estás seguro, dejá el campo vacío o lista vacía.
+- Si viene pegado sin espacio (ej: "Sarmiento1922 4toA"), igual inferí "Sarmiento 1922".
+- Ignorá/quitá del output de dirección: barrio, ciudad, provincia, "CABA", "Recoleta", "Ciudad autónoma...", etc.
+- Interpretá sinónimos:
+  - piso: piso, p
+  - depto: depto, dpto, dto, departamento
+  - UF: uf, u.f., unidad funcional
+  - cochera: cochera, garage, garaje
+  - oficina: oficina, of, of., ofic, ofic. (por ejemplo: "of 1" = oficina 1)
+  - local: local
+- Múltiples: soportar "y", "," (ej: "UF 27 y 28", "oficina 8 y 10", "cochera 1, cochera 2").
+
+DEVOLVÉ este JSON (usar "" / [] / false si no encontrás):
+{
+  "direccion_altura": "",
+  "piso": "",
+  "depto": "",
+  "ufs": [],
+  "cocheras": [],
+  "oficinas": [],
+  "es_local": false,
+  "unidad_extra": ""
+}
+
+EJEMPLOS:
+Input: "Sarmiento1922 4toA"
+Output: {"direccion_altura":"Sarmiento 1922","piso":"4","depto":"A","ufs":[],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":""}
+
+Input: "Lavalle 1282 piso 1 oficina 8 y 10"
+Output: {"direccion_altura":"Lavalle 1282","piso":"1","depto":"","ufs":[],"cocheras":[],"oficinas":["8","10"],"es_local":false,"unidad_extra":""}
+
+Input: "Lavalle 1282 1 piso of 1"
+Output: {"direccion_altura":"Lavalle 1282","piso":"1","depto":"","ufs":[],"cocheras":[],"oficinas":["1"],"es_local":false,"unidad_extra":""}
+
+Input: "Lavalle 1282, uf 27, uf 28"
+Output: {"direccion_altura":"Lavalle 1282","piso":"","depto":"","ufs":["27","28"],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":""}
+
+Input: "Guemes 3972 Piso 9o Dto B"
+Output: {"direccion_altura":"Guemes 3972","piso":"9","depto":"B","ufs":[],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":""}
+
+Input: "Calle Paraguay 2957, departamento 7D. Barrios Recoleta, Ciudad autónoma de Buenos Aires"
+Output: {"direccion_altura":"Paraguay 2957","piso":"","depto":"7D","ufs":[],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":""}
+
+Input: "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto Vicente"
+Output: {"direccion_altura":"Sarmiento 1922","piso":"2","depto":"A","ufs":["6"],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":"a nombre de Diego Alberto Vicente"}
+""")
+
 
 
 NLU_LOCATION_PROMPT=Template("""

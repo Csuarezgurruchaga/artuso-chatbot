@@ -6,7 +6,12 @@ import unicodedata
 from typing import Optional, Dict, Any, Iterable
 from openai import OpenAI
 from chatbot.models import TipoConsulta
-from templates.template import NLU_INTENT_PROMPT, NLU_MESSAGE_PARSING_PROMPT, PERSONALIZED_GREETING_PROMPT
+from templates.template import (
+    NLU_INTENT_PROMPT,
+    NLU_MESSAGE_PARSING_PROMPT,
+    NLU_DIRECCION_UNIDAD_PROMPT,
+    PERSONALIZED_GREETING_PROMPT,
+)
 from config.company_profiles import get_active_company_profile, get_company_info_text
 
 logger = logging.getLogger(__name__)
@@ -107,6 +112,15 @@ class NLUService:
     
     def __init__(self):
         self._client = None
+        self._model = None
+
+    def _get_model(self) -> str:
+        """
+        Modelo configurable por env var.
+        """
+        if self._model is None:
+            self._model = os.getenv("OPENAI_NLU_MODEL", "gpt-4o-mini")
+        return self._model
 
     @staticmethod
     def _matches_contact_adjacency(mensaje_lower: str) -> bool:
@@ -132,6 +146,195 @@ class NLUService:
                 raise ValueError("OPENAI_API_KEY es requerido para usar NLU LLM")
             self._client = OpenAI(api_key=api_key)
         return self._client
+
+    @staticmethod
+    def _strip_code_fences(text: str) -> str:
+        if not text:
+            return ""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+            cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+        return cleaned
+
+    @staticmethod
+    def _safe_json_loads(text: str) -> Dict[str, Any]:
+        """
+        Parser robusto: intenta JSON directo, luego busca el primer objeto JSON.
+        """
+        if not text:
+            return {}
+        cleaned = NLUService._strip_code_fences(text)
+        try:
+            parsed = json.loads(cleaned)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        if not match:
+            return {}
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    @staticmethod
+    def _unique_keep_order(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        seen = set()
+        result: list[str] = []
+        for item in values:
+            if item is None:
+                continue
+            value = str(item).strip()
+            if not value:
+                continue
+            key = value.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(value)
+        return result
+
+    @staticmethod
+    def _extract_oficinas_from_raw(text: str) -> list[str]:
+        """
+        Fallback local para abreviaturas comunes que el LLM puede omitir (p.ej. "of 1", "ofic. 1").
+        """
+        if not text:
+            return []
+        normalized = _normalize_text(text)
+        results: list[str] = []
+        for match in re.finditer(
+            r"\bof(?:ic|icina)?\.?\s*([0-9]{1,4}(?:\s*(?:,|y)\s*[0-9]{1,4})*)",
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            segment = match.group(1) or ""
+            for num in re.findall(r"\d{1,4}", segment):
+                results.append(num)
+        return NLUService._unique_keep_order(results)
+
+    @staticmethod
+    def _normalize_piso(value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        lowered = _normalize_text(raw)
+        if lowered in {"pb", "planta baja"}:
+            return "PB"
+        digits = re.findall(r"\d+", raw)
+        if digits:
+            return digits[0]
+        return raw.strip()
+
+    @staticmethod
+    def _normalize_depto(value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        lowered = _normalize_text(raw)
+        lowered = re.sub(r"^(depto|dpto|dto|departamento)\s*", "", lowered).strip()
+        compact = re.sub(r"\s+", "", lowered)
+        if not compact:
+            return ""
+        # Mantener números + letras (ej: 7D), y uppercase letras
+        if re.fullmatch(r"[0-9]+[a-z]{1,3}", compact):
+            return f"{re.findall(r'[0-9]+', compact)[0]}{re.findall(r'[a-z]{1,3}', compact)[0].upper()}"
+        if re.fullmatch(r"[a-z]{1,3}", compact):
+            return compact.upper()
+        # fallback (no forzar demasiado)
+        return raw.strip()
+
+    @staticmethod
+    def construir_unidad_sugerida(parsed: Dict[str, Any]) -> str:
+        """
+        Normaliza los datos extraídos en un string consistente para sugerir en "piso_depto".
+        """
+        if not isinstance(parsed, dict):
+            return ""
+
+        piso = NLUService._normalize_piso(str(parsed.get("piso", "") or ""))
+        depto = NLUService._normalize_depto(str(parsed.get("depto", "") or ""))
+        ufs = NLUService._unique_keep_order(parsed.get("ufs", []))
+        cocheras = NLUService._unique_keep_order(parsed.get("cocheras", []))
+        oficinas = NLUService._unique_keep_order(parsed.get("oficinas", []))
+        es_local = bool(parsed.get("es_local", False))
+        unidad_extra = str(parsed.get("unidad_extra", "") or "").strip()
+
+        parts: list[str] = []
+        if piso:
+            parts.append(f"Piso {piso}")
+        if depto:
+            parts.append(f"Depto {depto}")
+        if ufs:
+            parts.append("UF " + " y ".join(ufs))
+        if cocheras:
+            parts.append("Cochera " + " y ".join(cocheras))
+        if oficinas:
+            parts.append("Oficina " + " y ".join(oficinas))
+        if es_local:
+            parts.append("Local")
+
+        result = ", ".join(parts).strip()
+        if unidad_extra:
+            if result:
+                result = f"{result} ({unidad_extra})"
+            else:
+                result = f"({unidad_extra})"
+        return result.strip()
+
+    def extraer_direccion_unidad(self, mensaje_usuario: str) -> Dict[str, Any]:
+        """
+        Extrae 'direccion_altura' y componentes de unidad desde un texto libre.
+        """
+        try:
+            prompt = NLU_DIRECCION_UNIDAD_PROMPT.render(mensaje_usuario=mensaje_usuario)
+            response = self._get_client().chat.completions.create(
+                model=self._get_model(),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Eres un extractor de dirección/unidad para consorcios en Argentina. Responde solo JSON válido.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+                max_tokens=250,
+            )
+
+            resultado_text = (response.choices[0].message.content or "").strip()
+            logger.info("NLU dirección/unidad: '%s' -> '%s'", mensaje_usuario, resultado_text)
+            parsed = self._safe_json_loads(resultado_text)
+
+            if not parsed:
+                return {}
+
+            # Sanitizar shape mínimo
+            sanitized: Dict[str, Any] = {
+                "direccion_altura": str(parsed.get("direccion_altura", "") or "").strip(),
+                "piso": str(parsed.get("piso", "") or "").strip(),
+                "depto": str(parsed.get("depto", "") or "").strip(),
+                "ufs": self._unique_keep_order(parsed.get("ufs", [])),
+                "cocheras": self._unique_keep_order(parsed.get("cocheras", [])),
+                "oficinas": self._unique_keep_order(parsed.get("oficinas", [])),
+                "es_local": bool(parsed.get("es_local", False)),
+                "unidad_extra": str(parsed.get("unidad_extra", "") or "").strip(),
+            }
+
+            # Fallback: extraer "of/of." si el LLM no lo capturó.
+            if not sanitized["oficinas"]:
+                oficinas = self._extract_oficinas_from_raw(mensaje_usuario)
+                if oficinas:
+                    sanitized["oficinas"] = oficinas
+
+            return sanitized
+        except Exception as e:
+            logger.error("Error en extracción dirección/unidad: %s", str(e))
+            return {}
     
     def mapear_intencion(self, mensaje_usuario: str) -> Optional[TipoConsulta]:
         """
@@ -141,7 +344,7 @@ class NLUService:
             prompt = NLU_INTENT_PROMPT.render(mensaje_usuario=mensaje_usuario)
 
             response = self._get_client().chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self._get_model(),
                 messages=[
                     {"role": "system", "content": "Eres un clasificador de intenciones para un chatbot de expensas y reclamos. Responde solo con la categoría exacta solicitada."},
                     {"role": "user", "content": prompt}
@@ -174,7 +377,7 @@ class NLUService:
             prompt = NLU_MESSAGE_PARSING_PROMPT.render(mensaje_usuario=mensaje_usuario)
 
             response = self._get_client().chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self._get_model(),
                 messages=[
                     {"role": "system", "content": "Eres un extractor de datos para expensas y reclamos. Responde solo con JSON válido."},
                     {"role": "user", "content": prompt}
@@ -187,12 +390,11 @@ class NLUService:
             logger.info(f"NLU extracción: '{mensaje_usuario}' -> '{resultado_text}'")
             
             # Intentar parsear JSON
-            try:
-                datos = json.loads(resultado_text)
-                return datos
-            except json.JSONDecodeError:
-                logger.error(f"Error parseando JSON de LLM: {resultado_text}")
+            datos = self._safe_json_loads(resultado_text)
+            if not datos:
+                logger.error("Error parseando JSON de LLM: %s", resultado_text)
                 return {}
+            return datos
             
         except Exception as e:
             logger.error(f"Error en extracción de datos: {str(e)}")
@@ -218,7 +420,7 @@ class NLUService:
                 prompt += f"\nContexto: {contexto}"
             
             response = self._get_client().chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self._get_model(),
                 messages=[
                     {"role": "system", "content": "Valida datos de contacto. Responde solo con JSON válido."},
                     {"role": "user", "content": prompt}
@@ -228,10 +430,10 @@ class NLUService:
             )
             
             resultado_text = response.choices[0].message.content.strip()
-            try:
-                return json.loads(resultado_text)
-            except json.JSONDecodeError:
-                return {'valido': True, 'sugerencia': valor}
+            parsed = self._safe_json_loads(resultado_text)
+            if parsed:
+                return parsed
+            return {'valido': True, 'sugerencia': valor}
             
         except Exception as e:
             logger.error(f"Error validando campo {campo}: {str(e)}")

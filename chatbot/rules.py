@@ -727,7 +727,10 @@ Responde con el número de la opción que necesitas 📱"""
     @staticmethod
     def send_menu_interactivo(numero_telefono: str, nombre_usuario: str = ""):
         """
-        Envía el menú principal con botones interactivos reales
+        Envía el menú principal con botones interactivos reales.
+
+        Nota: esta función NO envía un fallback de texto si falla el interactivo.
+        El caller decide el fallback (para evitar duplicados).
         """
         from services.meta_whatsapp_service import meta_whatsapp_service
         import logging
@@ -754,8 +757,6 @@ Responde con el número de la opción que necesitas 📱"""
             return True
 
         logger.error(f"❌ Error enviando menú interactivo a {numero_telefono}")
-        mensaje_fallback = ChatbotRules.get_mensaje_inicial_personalizado(nombre_usuario)
-        meta_whatsapp_service.send_text_message(numero_telefono, mensaje_fallback)
         return False
 
     @staticmethod

@@ -16,6 +16,8 @@ from config.company_profiles import get_active_company_profile
 
 logger = logging.getLogger(__name__)
 
+UF_PATTERN = re.compile(r"\bU\.?\s*F\.?\s*(\d+)\b", re.IGNORECASE)
+
 EXPENSAS_SPREADSHEET_ID = os.getenv(
     "EXPENSAS_SPREADSHEET_ID",
     "1LYtHD-a9Ii8QaqLApr8P-7xKKncM-2h_C3i7D10LhSg",
@@ -114,6 +116,31 @@ class ExpensasSheetService:
         self._last_auth_ts = 0
         self._auth_ttl = 60 * 30
 
+    @staticmethod
+    def _parse_uf_from_dpto(dpto: str) -> Optional[str]:
+        if not dpto:
+            return None
+
+        matches = UF_PATTERN.findall(str(dpto))
+        numbers: List[int] = []
+        for match in matches:
+            try:
+                value = int(match)
+            except Exception:
+                continue
+            if value >= 1:
+                numbers.append(value)
+
+        if not numbers:
+            return None
+
+        parts = [f"UF {num}" for num in numbers]
+        if len(parts) == 1:
+            return parts[0]
+        if len(parts) == 2:
+            return f"{parts[0]} y {parts[1]}"
+        return ", ".join(parts[:-1]) + f" y {parts[-1]}"
+
     _LOCALIDAD_TOKENS = {
         "caba",
         "capital",
@@ -177,6 +204,17 @@ class ExpensasSheetService:
             comentario,  # COMENTARIO
             comprobante_value,  # COMPROBANTE
         ]
+
+        if not row[6]:
+            uf_value = self._parse_uf_from_dpto(piso_depto_norm)
+            if uf_value:
+                row[6] = uf_value
+                logger.info(
+                    "Expensas UF autocompletada: phone=%s dpto=%s uf=%s",
+                    conversacion.numero_telefono,
+                    piso_depto_norm,
+                    uf_value,
+                )
 
         try:
             gc = self._get_client()

@@ -29,8 +29,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-HANDOFF_TTL_MINUTES = 60
-HANDOFF_INACTIVITY_MINUTES = int(os.getenv("HANDOFF_INACTIVITY_MINUTES", str(HANDOFF_TTL_MINUTES)))
+# Intencional: el handoff expira por inactividad a los 60 minutos por defecto.
+# Breaking-change/compat: se ignora el env legacy `HANDOFF_TTL_MINUTES`; usar `HANDOFF_INACTIVITY_MINUTES`.
+HANDOFF_INACTIVITY_DEFAULT_MINUTES = 60
+HANDOFF_INACTIVITY_MINUTES = int(
+    os.getenv("HANDOFF_INACTIVITY_MINUTES", str(HANDOFF_INACTIVITY_DEFAULT_MINUTES))
+)
 HANDOFF_TEMPLATE_NAME = os.getenv("HANDOFF_TEMPLATE_NAME", "handoff")
 HANDOFF_TEMPLATE_LANG = os.getenv("HANDOFF_TEMPLATE_LANG", "es_AR")
 COMPROBANTE_MIME_EXT = {

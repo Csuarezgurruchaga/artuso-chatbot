@@ -28,6 +28,15 @@ class ClientsSheetService:
         self._gc = None
         self._last_auth_ts = 0
         self._auth_ttl = 60 * 30
+        self._direcciones_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+        self._direcciones_cache_ttl = max(
+            0,
+            int(os.getenv("CLIENTS_DIRECCIONES_CACHE_TTL_SECONDS", "120")),
+        )
+        self._direcciones_cache_max_items = max(
+            1,
+            int(os.getenv("CLIENTS_DIRECCIONES_CACHE_MAX_ITEMS", "1000")),
+        )
 
     def _load_credentials(self):
         sa_raw = os.getenv("GOOGLE_EXPENSAS_SERVICE_ACCOUNT_JSON", "").strip()
@@ -91,34 +100,71 @@ class ClientsSheetService:
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    @staticmethod
+    def _clone_direcciones(direcciones: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [dict(item) for item in (direcciones or [])]
+
+    def _cache_get_direcciones(self, telefono: str) -> Optional[List[Dict[str, Any]]]:
+        if self._direcciones_cache_ttl <= 0:
+            return None
+        cached = self._direcciones_cache.get(telefono)
+        if not cached:
+            return None
+        cached_at, direcciones = cached
+        now = datetime.now(timezone.utc).timestamp()
+        if now - cached_at > self._direcciones_cache_ttl:
+            self._direcciones_cache.pop(telefono, None)
+            return None
+        return self._clone_direcciones(direcciones)
+
+    def _cache_set_direcciones(self, telefono: str, direcciones: List[Dict[str, Any]]) -> None:
+        if self._direcciones_cache_ttl <= 0:
+            return
+        now = datetime.now(timezone.utc).timestamp()
+        sorted_dirs = self._sort_direcciones(direcciones or [])
+        self._direcciones_cache[telefono] = (now, self._clone_direcciones(sorted_dirs))
+        if len(self._direcciones_cache) > self._direcciones_cache_max_items:
+            oldest_phone = min(self._direcciones_cache, key=lambda k: self._direcciones_cache[k][0])
+            self._direcciones_cache.pop(oldest_phone, None)
+
     def _find_row(self, ws, telefono: str) -> Tuple[Optional[int], Optional[List[str]]]:
-        rows = ws.get_all_values()
+        # Fetch only columns A:C (telefono/json/updated_at) instead of full sheet payload.
+        rows = ws.get("A:C")
         if not rows:
             return None, None
         start_idx = 0
-        header = rows[0][0].strip().lower() if rows[0] else ""
+        header = str(rows[0][0]).strip().lower() if rows[0] else ""
         if header == "telefono":
             start_idx = 1
         for idx, row in enumerate(rows[start_idx:], start=start_idx + 1):
-            if row and row[0].strip() == telefono:
+            if row and str(row[0]).strip() == telefono:
                 return idx, row
         return None, None
 
     def get_direcciones(self, telefono: str) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
+        cached = self._cache_get_direcciones(telefono)
+        if cached is not None:
+            return cached
         try:
             ws = self._get_sheet()
             _, row = self._find_row(ws, telefono)
-            if not row or len(row) < 2 or not row[1].strip():
+            json_raw = str(row[1]).strip() if row and len(row) >= 2 else ""
+            if not row or len(row) < 2 or not json_raw:
+                self._cache_set_direcciones(telefono, [])
                 return []
             try:
-                parsed = json.loads(row[1])
+                parsed = json.loads(json_raw)
                 if not isinstance(parsed, list):
+                    self._cache_set_direcciones(telefono, [])
                     return []
-                return self._sort_direcciones(parsed)
+                direcciones = self._sort_direcciones(parsed)
+                self._cache_set_direcciones(telefono, direcciones)
+                return self._clone_direcciones(direcciones)
             except json.JSONDecodeError:
                 logger.error("CLIENTES JSON invalido para telefono=%s", telefono)
+                self._cache_set_direcciones(telefono, [])
                 return []
         except Exception as exc:
             logger.error("Error leyendo CLIENTES telefono=%s error=%s", telefono, str(exc))
@@ -141,6 +187,7 @@ class ClientsSheetService:
                 ws.update(f"A{row_idx}:C{row_idx}", [payload], value_input_option="RAW")
             else:
                 ws.append_row(payload, value_input_option="RAW")
+            self._cache_set_direcciones(telefono, direcciones_sorted)
             return True
         except Exception as exc:
             logger.error("Error guardando CLIENTES telefono=%s error=%s", telefono, str(exc))

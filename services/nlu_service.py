@@ -10,6 +10,7 @@ from templates.template import (
     NLU_INTENT_PROMPT,
     NLU_MESSAGE_PARSING_PROMPT,
     NLU_DIRECCION_UNIDAD_PROMPT,
+    NLU_EXPENSAS_ED_COMBINED_PROMPT,
     PERSONALIZED_GREETING_PROMPT,
 )
 from config.company_profiles import get_active_company_profile, get_company_info_text
@@ -372,6 +373,72 @@ class NLUService:
             return sanitized
         except Exception as e:
             logger.error("Error en extracción dirección/unidad: %s", str(e))
+            return {}
+
+    @staticmethod
+    def _normalize_fecha_simple(value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        match = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$", raw)
+        if not match:
+            return raw
+        day, month, year = match.groups()
+        if len(year) == 2:
+            year = f"20{year}"
+        return f"{int(day):02d}/{int(month):02d}/{year}"
+
+    @staticmethod
+    def _normalize_monto_simple(value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        return re.sub(r"[^\d,\.]", "", raw)
+
+    def extraer_expensas_ed_combinado(self, mensaje_usuario: str) -> Dict[str, Any]:
+        """
+        Extracción combinada (1 solo llamado LLM) para el paso ED de expensas.
+        """
+        try:
+            prompt = NLU_EXPENSAS_ED_COMBINED_PROMPT.render(mensaje_usuario=mensaje_usuario)
+            response = self._get_client().chat.completions.create(
+                model=self._get_model(),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Eres un extractor de dirección/fecha/monto para pagos de expensas en Argentina. "
+                            "Responde solo JSON válido."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+                max_tokens=250,
+            )
+
+            resultado_text = (response.choices[0].message.content or "").strip()
+            logger.info("NLU ED combinado: '%s' -> '%s'", mensaje_usuario, resultado_text)
+            parsed = self._safe_json_loads(resultado_text)
+            if not parsed:
+                return {}
+
+            direccion_altura = str(parsed.get("direccion_altura", "") or "").strip()
+            piso_depto = str(parsed.get("piso_depto", "") or "").strip()
+            if not piso_depto:
+                # Compat: si el modelo devuelve shape vieja, reconstruir unidad.
+                piso_depto = self.construir_unidad_sugerida(parsed)
+
+            sanitized: Dict[str, Any] = {
+                "direccion_altura": direccion_altura,
+                "piso_depto": piso_depto,
+                "fecha_pago": self._normalize_fecha_simple(str(parsed.get("fecha_pago", "") or "").strip()),
+                "monto": self._normalize_monto_simple(str(parsed.get("monto", "") or "").strip()),
+                "comentario_extra": str(parsed.get("comentario_extra", "") or "").strip(),
+            }
+            return sanitized
+        except Exception as e:
+            logger.error("Error en extracción ED combinada: %s", str(e))
             return {}
     
     def mapear_intencion(self, mensaje_usuario: str) -> Optional[TipoConsulta]:

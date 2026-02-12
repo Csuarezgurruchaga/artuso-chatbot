@@ -130,6 +130,47 @@ Input: "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto 
 Output: {"direccion_altura":"Sarmiento 1922","piso":"2","depto":"A","ufs":["6"],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":"a nombre de Diego Alberto Vicente"}
 """)
 
+NLU_EXPENSAS_ED_COMBINED_PROMPT = Template(r"""
+Sos un extractor de datos para pagos de expensas en Argentina.
+
+Analiza este texto (respuesta del usuario en el paso de dirección ED) y extraé:
+1) "direccion_altura": SOLO calle/avenida + número.
+2) "piso_depto": unidad normalizada (ej: "2A", "7D", "Piso 10, Depto D", "Uf 6").
+3) "fecha_pago": solo si es clara (preferir dd/mm/yyyy).
+4) "monto": solo valor numérico (sin $ ni texto).
+5) "comentario_extra": texto adicional relevante que no entra en los campos anteriores.
+
+Input:
+"{{mensaje_usuario}}"
+
+REGLAS:
+- Respondé ÚNICAMENTE JSON válido.
+- Conservador: si no estás seguro, dejar campo en "".
+- Ignorá barrio/ciudad/provincia al armar "direccion_altura".
+- Si viene fecha en dd-mm-yyyy o dd.mm.yyyy, convertí a dd/mm/yyyy.
+- Si hay "hoy" o "ayer" sin fecha explícita, dejar "fecha_pago" en "".
+- Si hay múltiples números, separar dirección (altura) de monto cuando haya señal de pago/importe.
+
+JSON esperado:
+{
+  "direccion_altura": "",
+  "piso_depto": "",
+  "fecha_pago": "",
+  "monto": "",
+  "comentario_extra": ""
+}
+
+EJEMPLOS:
+Input: "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto Vicente"
+Output: {"direccion_altura":"Sarmiento 1922","piso_depto":"2A, Uf 6","fecha_pago":"","monto":"","comentario_extra":"a nombre de Diego Alberto Vicente"}
+
+Input: "Calle Paraguay 2957, departamento 7D. Barrios Recoleta, Ciudad autónoma de Buenos Aires"
+Output: {"direccion_altura":"Paraguay 2957","piso_depto":"7D","fecha_pago":"","monto":"","comentario_extra":""}
+
+Input: "Tte. Gral. Juan Domingo Perón 2250 Piso 10 Departamento D"
+Output: {"direccion_altura":"Tte. Gral. Juan Domingo Perón 2250","piso_depto":"10D","fecha_pago":"","monto":"","comentario_extra":""}
+""")
+
 
 
 NLU_LOCATION_PROMPT=Template("""

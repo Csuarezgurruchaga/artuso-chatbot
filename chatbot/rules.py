@@ -1221,6 +1221,37 @@ Responde con el número de la opción que necesitas 📱"""
         return False
 
     @staticmethod
+    def _parece_expensas_ed_todo_en_uno(texto: str) -> bool:
+        """
+        Heurística de disparo para ED (expensas, campo_actual='direccion'):
+        dirección + (unidad y/o fecha y/o monto).
+        """
+        if not texto:
+            return False
+
+        t = texto.lower().strip()
+        has_address_like = bool(
+            re.search(r"\b[a-záéíóúñü][a-záéíóúñü.'-]{1,}\s+\d{1,5}\b", t)
+            or re.search(r"\b(av\.?|avenida|calle|pasaje|ruta|tte\.?|gral\.?|dr\.?)\b", t)
+        )
+        if not has_address_like:
+            return False
+
+        has_unidad = ChatbotRules._parece_direccion_con_unidad(texto)
+        has_fecha = bool(
+            re.search(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b", t)
+            or re.search(r"\b(hoy|ayer)\b", t)
+        )
+
+        monto_chunks = re.findall(r"\d[\d.,]{2,}", t)
+        has_monto_keyword = bool(
+            re.search(r"(?:\$|ars|\b(?:monto|importe|pague|pagué|abone|aboné|abonado)\b)", t)
+        )
+        has_monto = bool(monto_chunks) and (has_monto_keyword or len(monto_chunks) >= 2)
+
+        return has_unidad or has_fecha or has_monto
+
+    @staticmethod
     def _extraer_piso_depto_de_direccion(direccion: str) -> tuple[str, Optional[str]]:
         """
         Intenta extraer piso/depto al final de una dirección.
@@ -1841,6 +1872,38 @@ Responde con el número de la opción que necesitas 📱"""
             return ChatbotRules.get_mensaje_confirmacion(conversacion)
 
         valor = mensaje.strip()
+        autocompletados_en_turno: list[tuple[str, str]] = []
+
+        def _campo_vacio(nombre_campo: str) -> bool:
+            actual = conversacion.datos_temporales.get(nombre_campo)
+            if actual is None:
+                return True
+            return isinstance(actual, str) and not actual.strip()
+
+        def _registrar_autocompletado(nombre_campo: str, valor_campo: str) -> None:
+            visible = (valor_campo or "").strip()
+            if not visible:
+                return
+            autocompletados_en_turno.append((nombre_campo, ChatbotRules._truncate_text(visible, 36)))
+
+        def _aplicar_resumen_autocompletado(base: str) -> str:
+            if len(autocompletados_en_turno) < 2:
+                return base
+            etiquetas = {
+                "fecha_pago": "fecha",
+                "monto": "monto",
+                "direccion": "dirección",
+                "piso_depto": "unidad",
+            }
+            detalle = ", ".join(
+                f"{etiquetas.get(campo, campo)}: {valor_item}"
+                for campo, valor_item in autocompletados_en_turno
+            )
+            resumen = f"Detecté y completé {len(autocompletados_en_turno)} campos ({detalle})."
+            if not base:
+                return resumen
+            return f"{resumen}\n\n{base}"
+
         if campo_actual == "piso_depto":
             sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
             valor_lower = valor.lower()
@@ -1894,21 +1957,46 @@ Responde con el número de la opción que necesitas 📱"""
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, matched)
         elif campo_actual == 'direccion' and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
-            direccion_base = valor
             direccion_base, sugerido = ChatbotRules._extraer_piso_depto_de_direccion(valor)
+            llm_parse_ok = False
 
-            if ChatbotRules._parece_direccion_con_unidad(valor):
+            if ChatbotRules._parece_expensas_ed_todo_en_uno(valor):
                 try:
-                    from services.nlu_service import nlu_service, NLUService
+                    from services.nlu_service import nlu_service
 
-                    parsed = nlu_service.extraer_direccion_unidad(valor)
+                    parsed = nlu_service.extraer_expensas_ed_combinado(valor)
                     if parsed:
+                        llm_parse_ok = True
                         llm_base = (parsed.get("direccion_altura") or "").strip()
-                        llm_sugerido = NLUService.construir_unidad_sugerida(parsed)
+                        llm_piso_depto = (parsed.get("piso_depto") or "").strip()
+                        llm_fecha = (parsed.get("fecha_pago") or "").strip()
+                        llm_monto = (parsed.get("monto") or "").strip()
+
                         if llm_base and ChatbotRules._direccion_valida(llm_base):
                             direccion_base = llm_base
-                        if llm_sugerido:
-                            sugerido = llm_sugerido
+                            if _campo_vacio("direccion"):
+                                _registrar_autocompletado("direccion", llm_base)
+                        if llm_piso_depto:
+                            sugerido = llm_piso_depto
+
+                        if _campo_vacio("fecha_pago") and llm_fecha:
+                            fecha_norm = ChatbotRules._normalizar_fecha_pago(llm_fecha)
+                            if fecha_norm:
+                                conversation_manager.set_datos_temporales(
+                                    numero_telefono,
+                                    "fecha_pago",
+                                    fecha_norm,
+                                )
+                                _registrar_autocompletado("fecha_pago", fecha_norm)
+                        if _campo_vacio("monto") and llm_monto:
+                            monto_norm = ChatbotRules._normalizar_monto(llm_monto)
+                            if monto_norm:
+                                conversation_manager.set_datos_temporales(
+                                    numero_telefono,
+                                    "monto",
+                                    monto_norm,
+                                )
+                                _registrar_autocompletado("monto", monto_norm)
                 except Exception:
                     pass
 
@@ -1919,19 +2007,32 @@ Responde con el número de la opción que necesitas 📱"""
                 sugerido,
             )
 
-            if sugerido and len(direccion_base) >= 5:
+            if (
+                llm_parse_ok
+                and sugerido
+                and _campo_vacio("piso_depto")
+                and ChatbotRules._validar_campo_individual("piso_depto", sugerido)
+            ):
+                conversation_manager.set_datos_temporales(numero_telefono, "piso_depto", sugerido)
+                conversation_manager.set_datos_temporales(
+                    numero_telefono,
+                    "_piso_depto_sugerido",
+                    None,
+                )
+                _registrar_autocompletado("piso_depto", sugerido)
+            elif sugerido and len(direccion_base) >= 5 and _campo_vacio("piso_depto"):
                 conversation_manager.set_datos_temporales(
                     numero_telefono,
                     "_piso_depto_sugerido",
                     sugerido,
                 )
-                valor = direccion_base
             else:
                 conversation_manager.set_datos_temporales(
                     numero_telefono,
                     "_piso_depto_sugerido",
                     None,
                 )
+            valor = direccion_base
             if not ChatbotRules._validar_campo_individual(campo_actual, valor):
                 ChatbotRules._log_validacion_fallida(campo_actual)
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
@@ -2006,7 +2107,9 @@ Responde con el número de la opción que necesitas 📱"""
 
         if conversation_manager.es_ultimo_campo(numero_telefono, campo_actual):
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
-            return ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
+            return _aplicar_resumen_autocompletado(
+                ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
+            )
 
         siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
         if campo_actual == "tipo_servicio":
@@ -2027,11 +2130,11 @@ Responde con el número de la opción que necesitas 📱"""
         if siguiente_campo == "direccion" and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
             direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "expensas")
             if direccion_prompt is not None:
-                return direccion_prompt
+                return _aplicar_resumen_autocompletado(direccion_prompt)
         if siguiente_campo == "direccion_servicio" and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "servicio")
             if direccion_prompt is not None:
-                return direccion_prompt
+                return _aplicar_resumen_autocompletado(direccion_prompt)
         if (
             siguiente_campo == 'piso_depto'
             and conversacion.tipo_consulta in {TipoConsulta.PAGO_EXPENSAS, TipoConsulta.SOLICITAR_SERVICIO}
@@ -2039,15 +2142,17 @@ Responde con el número de la opción que necesitas 📱"""
         ):
             sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
             if sugerido and ChatbotRules.send_piso_depto_suggestion(numero_telefono, sugerido):
-                return ""
+                return _aplicar_resumen_autocompletado("")
             if sugerido:
-                return (
+                return _aplicar_resumen_autocompletado(
                     f"Detecté piso/depto: {sugerido}. "
                     f"Respondé con {sugerido} o escribí otro.\n\n"
                     f"{ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)}"
                 )
 
-        return ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)
+        return _aplicar_resumen_autocompletado(
+            ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)
+        )
     
     @staticmethod
     def _procesar_campo_individual(numero_telefono: str, mensaje: str) -> str:

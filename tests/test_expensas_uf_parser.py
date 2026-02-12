@@ -13,6 +13,7 @@ def test_parse_uf_single():
     assert ExpensasSheetService._parse_uf_from_dpto("UF5") == "UF 5"
     assert ExpensasSheetService._parse_uf_from_dpto("U.F. 5") == "UF 5"
     assert ExpensasSheetService._parse_uf_from_dpto("UF 118.") == "UF 118"
+    assert ExpensasSheetService._parse_uf_from_dpto("UNIDAD 49, DEPTO 319") == "UF 49"
 
 
 def test_parse_uf_multi_two():
@@ -31,10 +32,21 @@ def test_parse_uf_not_present():
     assert ExpensasSheetService._parse_uf_from_dpto("0 UF 0") is None
 
 
+def test_strip_uf_from_dpto():
+    assert ExpensasSheetService._strip_uf_from_dpto("2*D UF 5") == "2*D"
+    assert ExpensasSheetService._strip_uf_from_dpto("UNIDAD 49, DEPTO 319") == "DEPTO 319"
+    assert ExpensasSheetService._strip_uf_from_dpto("UF 25 Y UF 26") == ""
+    assert (
+        ExpensasSheetService._strip_uf_from_dpto("2° 1 UF 28, 2° 2 UF 27, Y 3° 7 UF 44")
+        == "2° 1, 2° 2, 3° 7"
+    )
+    assert ExpensasSheetService._strip_uf_from_dpto("COCHERA 38 UF 9") == "COCHERA 38"
+    assert ExpensasSheetService._strip_uf_from_dpto("U.F. 118.") == ""
+
+
 if __name__ == "__main__":
     test_parse_uf_single()
     test_parse_uf_multi_two()
     test_parse_uf_multi_three_or_more()
     test_parse_uf_not_present()
     print("OK")
-

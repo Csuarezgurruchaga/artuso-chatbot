@@ -130,6 +130,43 @@ Input: "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto 
 Output: {"direccion_altura":"Sarmiento 1922","piso":"2","depto":"A","ufs":["6"],"cocheras":[],"oficinas":[],"es_local":false,"unidad_extra":"a nombre de Diego Alberto Vicente"}
 """)
 
+NLU_EXPENSAS_ED_COMBINED_PROMPT = Template(r"""
+Sos un extractor de datos para pagos de expensas en Argentina.
+
+Analiza este texto (respuesta del usuario en el paso de dirección ED) y extraé:
+1) "direccion_altura": SOLO calle/avenida + número.
+2) "piso_depto": unidad normalizada (ej: "2A", "7D", "Piso 10, Depto D", "Uf 6").
+3) "comprobante_mencionado": true si el usuario menciona comprobante/adjunto/archivo/imagen/pdf.
+4) "comentario_extra": texto adicional relevante que no entra en los campos anteriores.
+
+Input:
+"{{mensaje_usuario}}"
+
+REGLAS:
+- Respondé ÚNICAMENTE JSON válido.
+- Conservador: si no estás seguro, dejar campo en "".
+- Ignorá barrio/ciudad/provincia al armar "direccion_altura".
+- Si no hay evidencia de comprobante, "comprobante_mencionado" debe ser false.
+
+JSON esperado:
+{
+  "direccion_altura": "",
+  "piso_depto": "",
+  "comprobante_mencionado": false,
+  "comentario_extra": ""
+}
+
+EJEMPLOS:
+Input: "Calle Sarmiento 1922 2° A Unidad funcional 6 a nombre de Diego Alberto Vicente"
+Output: {"direccion_altura":"Sarmiento 1922","piso_depto":"2A, Uf 6","comprobante_mencionado":false,"comentario_extra":"a nombre de Diego Alberto Vicente"}
+
+Input: "Calle Paraguay 2957, departamento 7D. Barrios Recoleta, Ciudad autónoma de Buenos Aires"
+Output: {"direccion_altura":"Paraguay 2957","piso_depto":"7D","comprobante_mencionado":false,"comentario_extra":""}
+
+Input: "Tte. Gral. Juan Domingo Perón 2250 Piso 10 Departamento D. Adjunto comprobante en PDF"
+Output: {"direccion_altura":"Tte. Gral. Juan Domingo Perón 2250","piso_depto":"10D","comprobante_mencionado":true,"comentario_extra":""}
+""")
+
 
 
 NLU_LOCATION_PROMPT=Template("""

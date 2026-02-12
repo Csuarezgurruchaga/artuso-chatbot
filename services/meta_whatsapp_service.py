@@ -61,13 +61,14 @@ class MetaWhatsAppService:
             bool: True si se envió exitosamente
         """
         try:
-            logger.info(f"=== META WHATSAPP SEND TEXT DEBUG ===")
-            logger.info(f"to_number original: {to_number}")
-            logger.info(f"message: {message}")
-            
             # Normalizar número (remover whatsapp: si existe, asegurar que tenga +)
             normalized_number = self._normalize_phone_number(to_number)
-            logger.info(f"to_number normalizado: {normalized_number}")
+            logger.debug(
+                "send_text request to=%s normalized=%s chars=%s",
+                to_number,
+                normalized_number,
+                len(message or ""),
+            )
             
             # Construir payload
             url = f"{self.base_url}/{self.phone_number_id}/messages"
@@ -82,14 +83,13 @@ class MetaWhatsAppService:
                 }
             }
             
-            logger.info(f"URL: {url}")
-            logger.info(f"Payload: {json.dumps(payload, indent=2)}")
-            
             # Enviar petición
             response = self._session.post(url, headers=self.headers, json=payload, timeout=10)
-            
-            logger.info(f"Status code: {response.status_code}")
-            logger.debug(f"Response: {response.text}")
+            logger.debug(
+                "send_text response status=%s body=%s",
+                response.status_code,
+                (response.text or "")[:500],
+            )
             
             # Validar respuesta
             if response.status_code in [200, 201]:
@@ -103,7 +103,7 @@ class MetaWhatsAppService:
                 
         except Exception as e:
             logger.error(f"❌ Excepción enviando mensaje a {to_number}: {str(e)}")
-            logger.error(f"Tipo de error: {type(e).__name__}")
+            logger.debug("send_text exception_type=%s", type(e).__name__)
             return False
     
     def send_template_message(

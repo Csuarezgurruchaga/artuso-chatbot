@@ -407,7 +407,7 @@ class NLUService:
                     {
                         "role": "system",
                         "content": (
-                            "Eres un extractor de dirección/fecha/monto para pagos de expensas en Argentina. "
+                            "Eres un extractor de direccion/unidad/comprobante para pagos de expensas en Argentina. "
                             "Responde solo JSON válido."
                         ),
                     },
@@ -428,12 +428,22 @@ class NLUService:
             if not piso_depto:
                 # Compat: si el modelo devuelve shape vieja, reconstruir unidad.
                 piso_depto = self.construir_unidad_sugerida(parsed)
+            comprobante_mencionado_raw = parsed.get("comprobante_mencionado", False)
+            if isinstance(comprobante_mencionado_raw, str):
+                comprobante_mencionado = comprobante_mencionado_raw.strip().lower() in {
+                    "1",
+                    "true",
+                    "si",
+                    "sí",
+                    "yes",
+                }
+            else:
+                comprobante_mencionado = bool(comprobante_mencionado_raw)
 
             sanitized: Dict[str, Any] = {
                 "direccion_altura": direccion_altura,
                 "piso_depto": piso_depto,
-                "fecha_pago": self._normalize_fecha_simple(str(parsed.get("fecha_pago", "") or "").strip()),
-                "monto": self._normalize_monto_simple(str(parsed.get("monto", "") or "").strip()),
+                "comprobante_mencionado": comprobante_mencionado,
                 "comentario_extra": str(parsed.get("comentario_extra", "") or "").strip(),
             }
             return sanitized

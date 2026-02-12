@@ -991,24 +991,26 @@ Responde con el número de la opción que necesitas 📱"""
                 inicio = time.time()
                 profile = get_active_company_profile()
                 company_name = profile['name'].lower()
-                sticker_url = f"https://raw.githubusercontent.com/Csuarezgurruchaga/argenfuego-chatbot/main/assets/{company_name}.webp"
+                sticker_url = os.getenv("WHATSAPP_STICKER_URL", "").strip()
+                if not sticker_url:
+                    sticker_url = (
+                        f"https://raw.githubusercontent.com/Csuarezgurruchaga/argenfuego-chatbot/main/assets/{company_name}.webp"
+                    )
                 sticker_media_id = os.getenv("WHATSAPP_STICKER_MEDIA_ID", "").strip()
+                if sticker_media_id:
+                    logger.warning(
+                        "WHATSAPP_STICKER_MEDIA_ID esta deprecada y se ignora; usando WHATSAPP_STICKER_URL"
+                    )
 
                 logger.info(
-                    "sticker_config media_id_set=%s url=%s",
-                    bool(sticker_media_id),
+                    "sticker_config mode=url env_url_set=%s url=%s",
+                    bool(os.getenv("WHATSAPP_STICKER_URL", "").strip()),
                     sticker_url,
                 )
-                if sticker_media_id:
-                    sticker_enviado = meta_whatsapp_service.send_sticker(
-                        numero_telefono,
-                        sticker_id=sticker_media_id,
-                    )
-                else:
-                    sticker_enviado = meta_whatsapp_service.send_sticker(
-                        numero_telefono,
-                        sticker_url=sticker_url,
-                    )
+                sticker_enviado = meta_whatsapp_service.send_sticker(
+                    numero_telefono,
+                    sticker_url=sticker_url,
+                )
                 tiempo_sticker = (time.time() - inicio) * 1000
                 logger.info(f"✅ Sticker enviado en {tiempo_sticker:.0f}ms: {sticker_enviado}")
                 
@@ -1969,8 +1971,7 @@ Responde con el número de la opción que necesitas 📱"""
                         llm_parse_ok = True
                         llm_base = (parsed.get("direccion_altura") or "").strip()
                         llm_piso_depto = (parsed.get("piso_depto") or "").strip()
-                        llm_fecha = (parsed.get("fecha_pago") or "").strip()
-                        llm_monto = (parsed.get("monto") or "").strip()
+                        llm_comprobante = bool(parsed.get("comprobante_mencionado"))
 
                         if llm_base and ChatbotRules._direccion_valida(llm_base):
                             direccion_base = llm_base
@@ -1979,24 +1980,12 @@ Responde con el número de la opción que necesitas 📱"""
                         if llm_piso_depto:
                             sugerido = llm_piso_depto
 
-                        if _campo_vacio("fecha_pago") and llm_fecha:
-                            fecha_norm = ChatbotRules._normalizar_fecha_pago(llm_fecha)
-                            if fecha_norm:
-                                conversation_manager.set_datos_temporales(
-                                    numero_telefono,
-                                    "fecha_pago",
-                                    fecha_norm,
-                                )
-                                _registrar_autocompletado("fecha_pago", fecha_norm)
-                        if _campo_vacio("monto") and llm_monto:
-                            monto_norm = ChatbotRules._normalizar_monto(llm_monto)
-                            if monto_norm:
-                                conversation_manager.set_datos_temporales(
-                                    numero_telefono,
-                                    "monto",
-                                    monto_norm,
-                                )
-                                _registrar_autocompletado("monto", monto_norm)
+                        if llm_comprobante and _campo_vacio("comprobante"):
+                            conversation_manager.set_datos_temporales(
+                                numero_telefono,
+                                "_comprobante_mencionado_en_direccion",
+                                True,
+                            )
                 except Exception:
                     pass
 

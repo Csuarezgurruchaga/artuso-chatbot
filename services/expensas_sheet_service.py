@@ -16,7 +16,14 @@ from config.company_profiles import get_active_company_profile
 
 logger = logging.getLogger(__name__)
 
-UF_PATTERN = re.compile(r"\bU\.?\s*F\.?\s*(\d+)\b", re.IGNORECASE)
+UF_PATTERN = re.compile(
+    r"\b(?:U\.?\s*F\.?|UNIDAD(?:\s+FUNCIONAL)?)\s*(\d+)\b",
+    re.IGNORECASE,
+)
+UF_VALUE_PATTERN = re.compile(
+    r"\b(?:U\.?\s*F\.?|UNIDAD(?:\s+FUNCIONAL)?)\s*\d+\b",
+    re.IGNORECASE,
+)
 
 EXPENSAS_SPREADSHEET_ID = os.getenv(
     "EXPENSAS_SPREADSHEET_ID",
@@ -141,6 +148,19 @@ class ExpensasSheetService:
             return f"{parts[0]} y {parts[1]}"
         return ", ".join(parts[:-1]) + f" y {parts[-1]}"
 
+    @staticmethod
+    def _strip_uf_from_dpto(dpto: str) -> str:
+        if not dpto:
+            return ""
+
+        cleaned = UF_VALUE_PATTERN.sub(" ", str(dpto))
+        cleaned = re.sub(r"\bY\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*,\s*", ", ", cleaned)
+        cleaned = re.sub(r"(,\s*){2,}", ", ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.;:/|-")
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
     _LOCALIDAD_TOKENS = {
         "caba",
         "capital",
@@ -209,10 +229,12 @@ class ExpensasSheetService:
             uf_value = self._parse_uf_from_dpto(piso_depto_norm)
             if uf_value:
                 row[6] = uf_value
+                row[5] = self._strip_uf_from_dpto(piso_depto_norm)
                 logger.info(
-                    "Expensas UF autocompletada: phone=%s dpto=%s uf=%s",
+                    "Expensas UF autocompletada: phone=%s dpto_raw=%s dpto_clean=%s uf=%s",
                     conversacion.numero_telefono,
                     piso_depto_norm,
+                    row[5],
                     uf_value,
                 )
 
@@ -283,6 +305,39 @@ class ExpensasSheetService:
     def _column_letter(col_index: int) -> str:
         return _column_letter(col_index)
 
+    @staticmethod
+    def _filter_valid_comprobante_urls(urls: List[str]) -> List[str]:
+        safe_urls = [str(url).strip() for url in urls if str(url).strip()]
+        return [
+            url
+            for url in safe_urls
+            if url.startswith("http://") or url.startswith("https://")
+        ]
+
+    @classmethod
+    def _build_multi_comprobante_rich_text(cls, urls: List[str]) -> Tuple[str, List[dict]]:
+        safe_urls = cls._filter_valid_comprobante_urls(urls)
+        if not safe_urls:
+            return "", []
+
+        lines: List[str] = []
+        runs: List[dict] = []
+        cursor = 0
+        for idx, url in enumerate(safe_urls, start=1):
+            label = f"{EXPENSAS_COMPROBANTE_LABEL} {idx}"
+            lines.append(label)
+            runs.append(
+                {
+                    "startIndex": cursor,
+                    "format": {"link": {"uri": url}},
+                }
+            )
+            cursor += len(label)
+            if idx < len(safe_urls):
+                cursor += 1  # newline separator
+
+        return "\n".join(lines), runs
+
     def _get_or_create_tab(self, sh, tab_name: str):
         try:
             return sh.worksheet(tab_name)
@@ -308,26 +363,23 @@ class ExpensasSheetService:
 
     @classmethod
     def _build_comprobante_hyperlink_formula(cls, urls: List[str]) -> str:
-        safe_urls = [str(url).strip() for url in urls if str(url).strip()]
-        safe_urls = [url for url in safe_urls if url.startswith("http://") or url.startswith("https://")]
+        safe_urls = cls._filter_valid_comprobante_urls(urls)
         if not safe_urls:
             return ""
         if len(safe_urls) == 1:
             url = cls._escape_sheet_string(safe_urls[0])
             label = cls._escape_sheet_string(EXPENSAS_COMPROBANTE_LABEL)
             return f'=HYPERLINK("{url}";"{label}")'
-        parts = []
-        for idx, url_raw in enumerate(safe_urls, 1):
-            url = cls._escape_sheet_string(url_raw)
-            label = cls._escape_sheet_string(f"{EXPENSAS_COMPROBANTE_LABEL} {idx}")
-            parts.append(f'HYPERLINK("{url}";"{label}")')
-        return "=" + "&CHAR(10)&".join(parts)
+        # Para múltiples comprobantes evitamos fórmulas concatenadas de HYPERLINK.
+        # El renderizado se resuelve en _update_comprobante_links con rich text.
+        return ""
 
     def _update_comprobante_links(self, ws, resp, col_index: int, urls: List[str]) -> None:
         try:
-            formula = self._build_comprobante_hyperlink_formula(urls)
-            if not formula:
+            safe_urls = self._filter_valid_comprobante_urls(urls)
+            if not safe_urls:
                 return
+
             updated_range = resp.get("updates", {}).get("updatedRange", "")
             match = re.search(r"!([A-Z]+)(\d+)", updated_range)
             if not match:
@@ -336,6 +388,45 @@ class ExpensasSheetService:
             row_index = int(match.group(2))
             col_letter = self._column_letter(col_index)
             cell_range = f"{col_letter}{row_index}"
+
+            if len(safe_urls) > 1:
+                # Usamos rich text para tener varias etiquetas clickeables en una sola celda.
+                display_text, runs = self._build_multi_comprobante_rich_text(safe_urls)
+                if not display_text or not runs:
+                    return
+                ws.spreadsheet.batch_update(
+                    {
+                        "requests": [
+                            {
+                                "updateCells": {
+                                    "range": {
+                                        "sheetId": ws.id,
+                                        "startRowIndex": row_index - 1,
+                                        "endRowIndex": row_index,
+                                        "startColumnIndex": col_index - 1,
+                                        "endColumnIndex": col_index,
+                                    },
+                                    "rows": [
+                                        {
+                                            "values": [
+                                                {
+                                                    "userEnteredValue": {"stringValue": display_text},
+                                                    "textFormatRuns": runs,
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "fields": "userEnteredValue,textFormatRuns",
+                                }
+                            }
+                        ]
+                    }
+                )
+                return
+
+            formula = self._build_comprobante_hyperlink_formula(urls)
+            if not formula:
+                return
             ws.update(
                 [[formula]],
                 range_name=cell_range,

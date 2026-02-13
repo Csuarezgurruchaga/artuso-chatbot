@@ -93,7 +93,10 @@ COMPANY_PROFILES = {
             ],
             15: "Charcas 3962",
             17: "Viel 247",
-            20: "Amenabar 1415",
+            20: [
+                "Amenabar 1415",
+                "Amenabar 1421",
+            ],
             21: [
                 "Perón 2248",
                 "Peron 2250",

@@ -61,6 +61,7 @@ def test_address_synonyms_map_to_same_code():
             ],
             48: ["Palestina 580", "Estado de Palestina 580"],
             9: ["Av Cordoba 785", "Av. Córdoba 785", "Córdoba 785"],
+            20: ["Amenabar 1415", "Amenabar 1421"],
             10: [
                 "Av Entre Rios 1005",
                 "Av. Entre Ríos 1005",

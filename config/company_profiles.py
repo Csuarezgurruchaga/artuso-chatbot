@@ -145,6 +145,7 @@ COMPANY_PROFILES = {
             40: [
                 "Ortiz de Ocampo 2561",
                 "Ocampo 2561",
+                "Ocampo2561",
                 "Ortiz de campo 2561",
             ],
             41: [
@@ -155,6 +156,7 @@ COMPANY_PROFILES = {
             42: "Suipacha 1226",
             43: [
                 "Santa Fe 2638",
+                "Santa Fe 2636",
                 "Santafe 2638",
                 "Sta fe 2638",
                 "Av. Santa fe 2638",

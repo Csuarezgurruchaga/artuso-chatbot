@@ -54,10 +54,16 @@ def test_address_synonyms_map_to_same_code():
             30: ["Av Santa Fe 2647", "Av. Santa Fe 2647", "Santa Fe 2647"],
             43: [
                 "Santa Fe 2638",
+                "Santa Fe 2636",
                 "Santafe 2638",
                 "Av Santa Fe 2638",
                 "Av. Santa fe 2638",
                 "Av.Santa Fe 2638",
+            ],
+            40: [
+                "Ortiz de Ocampo 2561",
+                "Ocampo 2561",
+                "Ocampo2561",
             ],
             48: ["Palestina 580", "Estado de Palestina 580"],
             9: ["Av Cordoba 785", "Av. Córdoba 785", "Córdoba 785"],

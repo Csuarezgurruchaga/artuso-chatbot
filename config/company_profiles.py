@@ -141,7 +141,11 @@ COMPANY_PROFILES = {
             32: "Paraguay 2943",
             33: "Billinghurst 2490",
             34: "Junín 1586",
-            39: "Uruguay 361",
+            39: [
+                "Uruguay 361",
+                "Uruguay 369",
+                "Uruguay 361/69",
+            ],
             40: [
                 "Ortiz de Ocampo 2561",
                 "Ocampo 2561",
@@ -198,7 +202,7 @@ COMPANY_PROFILES = {
             32: "Paraguay 2943",
             33: "Billinghurst 2490",
             34: "Junín 1586",
-            39: "Uruguay 361",
+            39: "Uruguay 361/69",
             40: "Ortiz de Ocampo 2561",
             41: "Boyacá 620",
             42: "Suipacha 1226",

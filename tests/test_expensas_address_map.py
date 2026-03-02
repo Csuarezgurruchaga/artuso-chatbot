@@ -105,6 +105,7 @@ def test_address_synonyms_map_to_same_code():
                 "Teniente Gral. Juan Domingo Perón 1617/1621",
                 "tte gral j d peron 1617/1621",
             ],
+            39: ["Uruguay 361", "Uruguay 369", "Uruguay 361/69"],
         }
 
         for code, variants in synonyms.items():
@@ -123,6 +124,7 @@ def test_canonical_addresses_are_explicit():
         assert service.get_canonical_address(26) == "Av. Pueyrredón 873/75"
         assert service.get_canonical_address(30) == "Av. Santa Fe 2647"
         assert service.get_canonical_address(31) == "Tte. Gral. Juan Domingo Perón 1617/21"
+        assert service.get_canonical_address(39) == "Uruguay 361/69"
         assert service.get_canonical_address(43) == "Av. Santa Fe 2636/38"
         assert service.get_canonical_address(44) == "Av. Rivadavia 4350"
     finally:

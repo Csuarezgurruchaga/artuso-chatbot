@@ -26,10 +26,15 @@ COMPANY_PROFILES = {
     "administracion-artuso": {
         "name": "Administracion Artuso",
         "bot_name": "Artu",
-        "phone": "+54 11 0000-0000",
+        "phone": {
+            "public_phone": "4953-3018 / 4953-0577",
+            "landline_phone": "4953-3018 / 4953-0577",
+            "mobile_phone": "11-5348-8741",
+            "emergency_phone": "11-5609-6511",
+        },
         "address": "Direccion pendiente",
-        "hours": "Horarios pendientes",
-        "email": "admin@artuso.com",
+        "hours": "Lunes a Viernes de 11 a 13h y de 14 a 16h",
+        "email": "recepcion.adm.artuso@gmail.com",
         "contact_message": (
             "Gracias por comunicarte con Administración Artuso.\n"
             "Podés contactarnos por los siguientes canales:\n"

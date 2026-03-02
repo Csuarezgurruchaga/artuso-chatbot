@@ -54,10 +54,16 @@ def test_address_synonyms_map_to_same_code():
             30: ["Av Santa Fe 2647", "Av. Santa Fe 2647", "Santa Fe 2647"],
             43: [
                 "Santa Fe 2638",
+                "Santa Fe 2636",
                 "Santafe 2638",
                 "Av Santa Fe 2638",
                 "Av. Santa fe 2638",
                 "Av.Santa Fe 2638",
+            ],
+            40: [
+                "Ortiz de Ocampo 2561",
+                "Ocampo 2561",
+                "Ocampo2561",
             ],
             48: ["Palestina 580", "Estado de Palestina 580"],
             9: ["Av Cordoba 785", "Av. Córdoba 785", "Córdoba 785"],
@@ -108,8 +114,52 @@ def test_address_synonyms_map_to_same_code():
         _restore_profile(previous_profile)
 
 
+def test_canonical_addresses_are_explicit():
+    previous_profile = _set_profile()
+    try:
+        service = ExpensasSheetService()
+        assert service.get_canonical_address(8) == "Tte. Gral. Juan Domingo Perón 1875"
+        assert service.get_canonical_address(21) == "Tte. Gral. Juan Domingo Perón 2248/50"
+        assert service.get_canonical_address(26) == "Av. Pueyrredón 873/75"
+        assert service.get_canonical_address(30) == "Av. Santa Fe 2647"
+        assert service.get_canonical_address(31) == "Tte. Gral. Juan Domingo Perón 1617/21"
+        assert service.get_canonical_address(43) == "Av. Santa Fe 2636/38"
+        assert service.get_canonical_address(44) == "Av. Rivadavia 4350"
+    finally:
+        _restore_profile(previous_profile)
+
+
+def test_fuzzy_suggestions_use_only_canonical_addresses():
+    previous_profile = _set_profile()
+    try:
+        service = ExpensasSheetService()
+        assert service.get_fuzzy_address_suggestions("Peorn 1875") == [
+            "Tte. Gral. Juan Domingo Perón 1875"
+        ]
+        assert service.get_fuzzy_address_suggestions("Gueemes 3972") == [
+            "Güemes 3972"
+        ]
+    finally:
+        _restore_profile(previous_profile)
+
+
+def test_fuzzy_suggestions_require_exact_number_overlap():
+    previous_profile = _set_profile()
+    try:
+        service = ExpensasSheetService()
+        assert service.get_fuzzy_address_suggestions("Peron 1877") == []
+        assert service.get_fuzzy_address_suggestions("Peron 1621") == [
+            "Tte. Gral. Juan Domingo Perón 1617/21"
+        ]
+    finally:
+        _restore_profile(previous_profile)
+
+
 if __name__ == "__main__":
     test_av_santa_fe_maps_to_santa_fe_code()
     test_missing_av_prefix_still_maps()
     test_address_synonyms_map_to_same_code()
+    test_canonical_addresses_are_explicit()
+    test_fuzzy_suggestions_use_only_canonical_addresses()
+    test_fuzzy_suggestions_require_exact_number_overlap()
     print("OK")

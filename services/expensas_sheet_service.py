@@ -5,6 +5,7 @@ import base64
 import time
 import logging
 import unicodedata
+from difflib import SequenceMatcher
 from datetime import datetime, date
 from typing import Optional, Iterable, Tuple, Set, Any, List
 from zoneinfo import ZoneInfo
@@ -117,6 +118,9 @@ def apply_expensas_title_and_headers(ws, title_text: str) -> None:
 
 
 class ExpensasSheetService:
+    _FUZZY_STREET_THRESHOLD = 0.80
+    _FUZZY_SECONDARY_DELTA = 0.03
+
     def __init__(self):
         self.enabled = os.getenv("ENABLE_EXPENSAS_SHEET", "true").lower() == "true"
         self._gc = None
@@ -487,10 +491,137 @@ class ExpensasSheetService:
         except Exception:
             return code
 
+    def _get_profile_maps(self) -> Tuple[dict, dict]:
+        profile = get_active_company_profile()
+        address_map = profile.get("expensas_address_map", {})
+        canonical_map = profile.get("expensas_address_canonical_map", {})
+        return address_map, canonical_map
+
+    def get_canonical_address(self, code: Any) -> Optional[str]:
+        try:
+            address_map, canonical_map = self._get_profile_maps()
+        except Exception:
+            return None
+
+        normalized_code = self._coerce_code(code)
+
+        for raw_code, value in canonical_map.items():
+            if self._coerce_code(raw_code) == normalized_code:
+                canonical = str(value).strip()
+                return canonical or None
+
+        raw_value = address_map.get(normalized_code)
+        if raw_value is None:
+            raw_value = address_map.get(str(normalized_code))
+        if raw_value is None:
+            return None
+
+        if isinstance(raw_value, (list, tuple, set)):
+            for item in raw_value:
+                text = str(item).strip()
+                if text:
+                    return text
+            return None
+
+        text = str(raw_value).strip()
+        return text or None
+
+    @classmethod
+    def _street_similarity(cls, input_street_norm: str, candidate_street_norm: str) -> float:
+        input_tokens = [token for token in cls._street_token_set(input_street_norm) if token]
+        candidate_tokens = [token for token in cls._street_token_set(candidate_street_norm) if token]
+
+        if not input_tokens or not candidate_tokens:
+            return 0.0
+
+        best_token_scores = []
+        for input_token in input_tokens:
+            best_score = max(
+                SequenceMatcher(None, input_token, candidate_token).ratio()
+                for candidate_token in candidate_tokens
+            )
+            best_token_scores.append(best_score)
+
+        compact_input = "".join(input_tokens)
+        compact_candidate = "".join(candidate_tokens)
+        full_score = SequenceMatcher(None, compact_input, compact_candidate).ratio()
+        token_score = sum(best_token_scores) / len(best_token_scores)
+        return max(token_score, full_score)
+
+    def get_fuzzy_address_suggestions(self, direccion: str) -> List[str]:
+        try:
+            _, canonical_map = self._get_profile_maps()
+        except Exception:
+            return []
+
+        if not direccion or not canonical_map:
+            return []
+
+        input_clean = self._strip_localidad_tokens(direccion)
+        input_street_raw, input_numbers = self._extract_numbers_from_raw(input_clean)
+        if not input_numbers:
+            return []
+
+        input_street_norm = self._strip_avenida_prefix(
+            self._normalize_address_text(input_street_raw)
+        )
+        if not input_street_norm:
+            return []
+
+        matches: List[Tuple[float, str]] = []
+        for _, canonical in canonical_map.items():
+            canonical_text = str(canonical).strip()
+            if not canonical_text:
+                continue
+
+            canonical_clean = self._strip_localidad_tokens(canonical_text)
+            candidate_street_raw, candidate_numbers = self._extract_numbers_from_raw(
+                canonical_clean
+            )
+            if not candidate_numbers:
+                continue
+            if not any(number in candidate_numbers for number in input_numbers):
+                continue
+
+            candidate_street_norm = self._strip_avenida_prefix(
+                self._normalize_address_text(candidate_street_raw)
+            )
+            if not candidate_street_norm:
+                continue
+
+            similarity = self._street_similarity(input_street_norm, candidate_street_norm)
+            if similarity < self._FUZZY_STREET_THRESHOLD:
+                continue
+
+            matches.append((similarity, canonical_text))
+
+        if not matches:
+            return []
+
+        matches.sort(key=lambda item: (-item[0], item[1]))
+
+        unique_matches: List[Tuple[float, str]] = []
+        seen = set()
+        for score, canonical in matches:
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            unique_matches.append((score, canonical))
+
+        if len(unique_matches) > 2:
+            return []
+
+        if (
+            len(unique_matches) == 2
+            and (unique_matches[0][0] - unique_matches[1][0]) > self._FUZZY_SECONDARY_DELTA
+        ):
+            return [unique_matches[0][1]]
+
+        return [canonical for _, canonical in unique_matches]
+
     def _resolve_address_code(self, direccion: str) -> Optional[Any]:
         try:
-            profile = get_active_company_profile()
-            address_map = profile.get("expensas_address_map", {})
+            address_map, _ = self._get_profile_maps()
         except Exception:
             return None
 

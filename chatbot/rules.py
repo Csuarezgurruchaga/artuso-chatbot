@@ -1432,6 +1432,155 @@ Responde con el número de la opción que necesitas 📱"""
         return "\n".join(lines)
 
     @staticmethod
+    def _clear_direccion_fuzzy_state(numero_telefono: str) -> None:
+        conversation_manager.set_datos_temporales(
+            numero_telefono,
+            "_direccion_fuzzy_candidates",
+            None,
+        )
+
+    @staticmethod
+    def _build_direccion_fuzzy_text(candidatos: list[str]) -> str:
+        if not candidatos:
+            return ""
+
+        if len(candidatos) == 1:
+            lines = ["No pude identificar la direccion. ¿Quisiste decir?"]
+        else:
+            lines = ["No pude identificar la direccion. ¿Cual es la correcta?"]
+
+        lines.append("")
+        for idx, candidato in enumerate(candidatos, start=1):
+            lines.append(f"{idx}) {candidato}")
+
+        if len(candidatos) == 1:
+            lines.append("")
+            lines.append(
+                "Responde 1 para confirmar, o escribe nuevamente la direccion completa."
+            )
+        else:
+            lines.append("")
+            lines.append(
+                "Responde 1 o 2, o escribe nuevamente la direccion completa."
+            )
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _parse_direccion_fuzzy_choice(mensaje: str, total: int) -> Optional[int]:
+        normalized = ChatbotRules._normalize_seleccion_texto(mensaje)
+        word_map = {
+            "uno": 1,
+            "dos": 2,
+        }
+        num = word_map.get(normalized)
+        if num is None and re.fullmatch(r"\d+", normalized):
+            num = int(normalized)
+        if num is None:
+            return None
+        if 1 <= num <= total:
+            return num - 1
+        return -1
+
+    @staticmethod
+    def _continue_after_sequential_field(
+        numero_telefono: str,
+        campo_actual: str,
+        valor: str,
+    ) -> str:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+
+        if campo_actual == "piso_depto" and conversacion.datos_temporales.get("_direccion_nueva"):
+            if conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+                direccion = conversacion.datos_temporales.get("direccion_servicio", "")
+            else:
+                direccion = conversacion.datos_temporales.get("direccion", "")
+            conversation_manager.set_datos_temporales(
+                numero_telefono,
+                "_direccion_para_guardar",
+                {"direccion": direccion, "piso_depto": valor},
+            )
+            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
+
+        if conversation_manager.es_ultimo_campo(numero_telefono, campo_actual):
+            conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
+            return ChatbotRules.get_mensaje_confirmacion(conversacion)
+
+        siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
+        if campo_actual == "tipo_servicio":
+            caption_pendiente = conversacion.datos_temporales.pop("adjuntos_pendientes_caption", "")
+            if caption_pendiente:
+                return ChatbotRules._procesar_campo_secuencial(numero_telefono, caption_pendiente)
+        if (
+            campo_actual == "direccion"
+            and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
+            and siguiente_campo == "direccion"
+        ):
+            logging.getLogger(__name__).warning(
+                "Loop detectado en direccion: phone=%s. Forzando avance a piso_depto.",
+                numero_telefono,
+            )
+            conversation_manager.set_datos_temporales(numero_telefono, "direccion", valor)
+            siguiente_campo = "piso_depto"
+        if siguiente_campo == "direccion" and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
+            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "expensas")
+            if direccion_prompt is not None:
+                return direccion_prompt
+        if siguiente_campo == "direccion_servicio" and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
+            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "servicio")
+            if direccion_prompt is not None:
+                return direccion_prompt
+        if (
+            siguiente_campo == "piso_depto"
+            and conversacion.tipo_consulta in {TipoConsulta.PAGO_EXPENSAS, TipoConsulta.SOLICITAR_SERVICIO}
+            and not numero_telefono.startswith("messenger:")
+        ):
+            sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
+            if sugerido and ChatbotRules.send_piso_depto_suggestion(numero_telefono, sugerido):
+                return ""
+            if sugerido:
+                return (
+                    f"Detecté piso/depto: {sugerido}. "
+                    f"Respondé con {sugerido} o escribí otro.\n\n"
+                    f"{ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)}"
+                )
+
+        return ChatbotRules._get_pregunta_campo_secuencial(
+            siguiente_campo,
+            conversacion.tipo_consulta,
+        )
+
+    @staticmethod
+    def _procesar_direccion_fuzzy_text(numero_telefono: str, mensaje: str) -> Optional[str]:
+        conversacion = conversation_manager.get_conversacion(numero_telefono)
+        candidatos = conversacion.datos_temporales.get("_direccion_fuzzy_candidates") or []
+        if not candidatos:
+            return None
+
+        if (
+            conversacion.tipo_consulta != TipoConsulta.PAGO_EXPENSAS
+            or conversation_manager.get_campo_siguiente(numero_telefono) != "direccion"
+        ):
+            ChatbotRules._clear_direccion_fuzzy_state(numero_telefono)
+            return None
+
+        seleccion = ChatbotRules._parse_direccion_fuzzy_choice(mensaje, len(candidatos))
+        if seleccion == -1:
+            return ChatbotRules._build_direccion_fuzzy_text(candidatos)
+        if seleccion is None:
+            ChatbotRules._clear_direccion_fuzzy_state(numero_telefono)
+            return None
+
+        direccion = candidatos[seleccion]
+        ChatbotRules._clear_direccion_fuzzy_state(numero_telefono)
+        conversation_manager.marcar_campo_completado(numero_telefono, "direccion", direccion)
+        return ChatbotRules._continue_after_sequential_field(
+            numero_telefono,
+            "direccion",
+            direccion,
+        )
+
+    @staticmethod
     def _send_direccion_buttons(numero_telefono: str, direcciones: list) -> bool:
         from services.meta_whatsapp_service import meta_whatsapp_service
         import logging
@@ -2026,6 +2175,24 @@ Responde con el número de la opción que necesitas 📱"""
                 ChatbotRules._log_validacion_fallida(campo_actual)
                 error_msg = ChatbotRules._get_error_campo_individual(campo_actual)
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
+            from services.expensas_sheet_service import expensas_sheet_service
+
+            resolved_code = expensas_sheet_service._resolve_address_code(valor)
+            if resolved_code is not None:
+                ChatbotRules._clear_direccion_fuzzy_state(numero_telefono)
+                canonical = expensas_sheet_service.get_canonical_address(resolved_code)
+                if canonical:
+                    valor = canonical
+            else:
+                fuzzy_candidates = expensas_sheet_service.get_fuzzy_address_suggestions(valor)
+                if fuzzy_candidates:
+                    conversation_manager.set_datos_temporales(
+                        numero_telefono,
+                        "_direccion_fuzzy_candidates",
+                        fuzzy_candidates,
+                    )
+                    return ChatbotRules._build_direccion_fuzzy_text(fuzzy_candidates)
+                ChatbotRules._clear_direccion_fuzzy_state(numero_telefono)
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
         elif campo_actual == 'direccion_servicio' and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
             direccion_base = valor
@@ -2082,65 +2249,12 @@ Responde con el número de la opción que necesitas 📱"""
                 return f"❌ {error_msg}\n{ChatbotRules._get_pregunta_campo_secuencial(campo_actual, conversacion.tipo_consulta)}"
             conversation_manager.marcar_campo_completado(numero_telefono, campo_actual, valor)
 
-        if campo_actual == "piso_depto" and conversacion.datos_temporales.get("_direccion_nueva"):
-            if conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
-                direccion = conversacion.datos_temporales.get("direccion_servicio", "")
-            else:
-                direccion = conversacion.datos_temporales.get("direccion", "")
-            conversation_manager.set_datos_temporales(
-                numero_telefono,
-                "_direccion_para_guardar",
-                {"direccion": direccion, "piso_depto": valor},
-            )
-            conversation_manager.set_datos_temporales(numero_telefono, "_direccion_nueva", False)
-
-        if conversation_manager.es_ultimo_campo(numero_telefono, campo_actual):
-            conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
-            return _aplicar_resumen_autocompletado(
-                ChatbotRules.get_mensaje_confirmacion(conversation_manager.get_conversacion(numero_telefono))
-            )
-
-        siguiente_campo = conversation_manager.get_campo_siguiente(numero_telefono)
-        if campo_actual == "tipo_servicio":
-            caption_pendiente = conversacion.datos_temporales.pop("adjuntos_pendientes_caption", "")
-            if caption_pendiente:
-                return ChatbotRules._procesar_campo_secuencial(numero_telefono, caption_pendiente)
-        if (
-            campo_actual == "direccion"
-            and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS
-            and siguiente_campo == "direccion"
-        ):
-            logger.warning(
-                "Loop detectado en direccion: phone=%s. Forzando avance a piso_depto.",
-                numero_telefono,
-            )
-            conversation_manager.set_datos_temporales(numero_telefono, "direccion", valor)
-            siguiente_campo = "piso_depto"
-        if siguiente_campo == "direccion" and conversacion.tipo_consulta == TipoConsulta.PAGO_EXPENSAS:
-            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "expensas")
-            if direccion_prompt is not None:
-                return _aplicar_resumen_autocompletado(direccion_prompt)
-        if siguiente_campo == "direccion_servicio" and conversacion.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO:
-            direccion_prompt = ChatbotRules._maybe_prompt_direccion_guardada(numero_telefono, "servicio")
-            if direccion_prompt is not None:
-                return _aplicar_resumen_autocompletado(direccion_prompt)
-        if (
-            siguiente_campo == 'piso_depto'
-            and conversacion.tipo_consulta in {TipoConsulta.PAGO_EXPENSAS, TipoConsulta.SOLICITAR_SERVICIO}
-            and not numero_telefono.startswith("messenger:")
-        ):
-            sugerido = conversacion.datos_temporales.get("_piso_depto_sugerido")
-            if sugerido and ChatbotRules.send_piso_depto_suggestion(numero_telefono, sugerido):
-                return _aplicar_resumen_autocompletado("")
-            if sugerido:
-                return _aplicar_resumen_autocompletado(
-                    f"Detecté piso/depto: {sugerido}. "
-                    f"Respondé con {sugerido} o escribí otro.\n\n"
-                    f"{ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)}"
-                )
-
         return _aplicar_resumen_autocompletado(
-            ChatbotRules._get_pregunta_campo_secuencial(siguiente_campo, conversacion.tipo_consulta)
+            ChatbotRules._continue_after_sequential_field(
+                numero_telefono,
+                campo_actual,
+                valor,
+            )
         )
     
     @staticmethod
@@ -2798,6 +2912,10 @@ Responde con el número del campo que deseas modificar."""
         direccion_seleccion = ChatbotRules._procesar_seleccion_direccion_text(numero_telefono, mensaje)
         if direccion_seleccion is not None:
             return direccion_seleccion
+
+        direccion_fuzzy = ChatbotRules._procesar_direccion_fuzzy_text(numero_telefono, mensaje)
+        if direccion_fuzzy is not None:
+            return direccion_fuzzy
         
         if conversacion.estado == EstadoConversacion.INICIO:
             conversation_manager.update_estado(numero_telefono, EstadoConversacion.ESPERANDO_OPCION)

@@ -485,6 +485,19 @@ class ExpensasSheetService:
         return raw, set()
 
     @staticmethod
+    def _split_compact_street_number(text: str) -> str:
+        if not text:
+            return ""
+        raw = str(text).strip()
+        match = re.match(
+            r"^(.*[A-Za-zÁÉÍÓÚÜáéíóúüÑñ])(\d{1,5}(?:/\d{1,5})?)$",
+            raw,
+        )
+        if not match:
+            return raw
+        return f"{match.group(1).rstrip()} {match.group(2)}"
+
+    @staticmethod
     def _coerce_code(code: Any):
         try:
             return int(code)
@@ -619,15 +632,7 @@ class ExpensasSheetService:
 
         return [canonical for _, canonical in unique_matches]
 
-    def _resolve_address_code(self, direccion: str) -> Optional[Any]:
-        try:
-            address_map, _ = self._get_profile_maps()
-        except Exception:
-            return None
-
-        if not direccion or not address_map:
-            return None
-
+    def _resolve_address_code_once(self, direccion: str, address_map: dict) -> Optional[Any]:
         input_clean = self._strip_localidad_tokens(direccion)
         input_street_raw, input_numbers = self._extract_numbers_from_raw(input_clean)
         input_street_norm = self._normalize_address_text(input_street_raw)
@@ -675,6 +680,26 @@ class ExpensasSheetService:
                     and input_full_norm_wo_avenida == mapped_full_norm_wo_avenida
                 ):
                     return self._coerce_code(code)
+
+        return None
+
+    def _resolve_address_code(self, direccion: str) -> Optional[Any]:
+        try:
+            address_map, _ = self._get_profile_maps()
+        except Exception:
+            return None
+
+        if not direccion or not address_map:
+            return None
+
+        resolved = self._resolve_address_code_once(direccion, address_map)
+        if resolved is not None:
+            return resolved
+
+        compact_input = self._strip_localidad_tokens(direccion)
+        compact_candidate = self._split_compact_street_number(compact_input)
+        if compact_candidate and compact_candidate != compact_input:
+            return self._resolve_address_code_once(compact_candidate, address_map)
 
         return None
 

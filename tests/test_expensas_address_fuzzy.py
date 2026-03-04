@@ -108,6 +108,18 @@ def test_direct_match_canonicalizes_without_fuzzy_prompt():
     assert conv.datos_temporales.get("_direccion_fuzzy_candidates") is None
 
 
+def test_compact_street_number_maps_directly_to_canonical_address():
+    phone = "test-fuzzy-compact-direct"
+    _setup_expensas_address_step(phone)
+
+    response = ChatbotRules.procesar_mensaje(phone, "Guemes3972")
+    conv = conversation_manager.get_conversacion(phone)
+
+    assert "No pude identificar la direccion. ¿Quisiste decir?" not in response
+    assert conv.datos_temporales["direccion"] == "Güemes 3972"
+    assert conv.datos_temporales.get("_direccion_fuzzy_candidates") is None
+
+
 def test_uruguay_variants_map_directly_to_slash_canonical():
     for index, variant in enumerate(["Uruguay 361", "Uruguay 369", "Uruguay 361/69"], start=1):
         phone = f"test-uruguay-direct-{index}"

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -28,30 +28,34 @@ class EstadoConversacion(str, Enum):
     ENCUESTA_SATISFACCION = "encuesta_satisfaccion"  # Encuesta de satisfacción post-handoff
 
 class DatosContacto(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     email: EmailStr
-    direccion: str = Field(..., min_length=5, max_length=200, strip_whitespace=True)
-    horario_visita: str = Field(..., min_length=3, max_length=100, strip_whitespace=True)
-    descripcion: str = Field(..., min_length=10, max_length=500, strip_whitespace=True)
+    direccion: str = Field(..., min_length=5, max_length=200)
+    horario_visita: str = Field(..., min_length=3, max_length=100)
+    descripcion: str = Field(..., min_length=10, max_length=500)
     # Nuevos campos opcionales para datos fiscales / de facturación
     razon_social: Optional[str] = Field(
         default=None,
         max_length=200,
-        strip_whitespace=True,
         description="Razón social de la empresa o nombre y apellido si es particular",
     )
     cuit: Optional[str] = Field(
         default=None,
         max_length=20,  # admite formatos con guiones
-        strip_whitespace=True,
         description="CUIT para facturación (empresa o personal)",
     )
 
 class DatosConsultaGeneral(BaseModel):
     """Modelo simplificado para consultas generales (legacy)"""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     email: EmailStr
-    descripcion: str = Field(..., min_length=10, max_length=500, strip_whitespace=True)
+    descripcion: str = Field(..., min_length=10, max_length=500)
 
 class ConversacionData(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     numero_telefono: str
     estado: EstadoConversacion
     estado_anterior: Optional[EstadoConversacion] = None
@@ -81,7 +85,3 @@ class ConversacionData(BaseModel):
     survey_question_number: int = 0  # Número de pregunta actual (1, 2, 3)
     # Historial de mensajes durante handoff
     message_history: List[Dict[str, Any]] = Field(default_factory=list)  # [{timestamp, sender, message}]
-    
-    class Config:
-        use_enum_values = True
-        

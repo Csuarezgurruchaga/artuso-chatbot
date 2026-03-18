@@ -1,29 +1,81 @@
 import os
 import re
+import logging
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Optional, List, Any
 from .models import ConversacionData, EstadoConversacion, TipoConsulta
 from services.metrics_service import metrics_service
 from services.phone_display import format_phone_for_agent
 from datetime import datetime, timedelta
+from services.conversation_session_service import conversation_session_service
 
 POST_FINALIZADO_WINDOW_SECONDS = int(os.getenv("POST_FINALIZADO_WINDOW_SECONDS", "120"))
+logger = logging.getLogger(__name__)
 
 class ConversationManager:
-    def __init__(self):
+    def __init__(self, session_service=None):
         self.conversaciones: Dict[str, ConversacionData] = {}
         self.recently_finalized: Dict[str, datetime] = {}
+        self.session_service = session_service or conversation_session_service
 
         # Sistema de cola FIFO para handoffs
         self.handoff_queue: List[str] = []  # Lista de números de teléfono en orden FIFO
         self.active_handoff: Optional[str] = None  # Número de teléfono activo actualmente
+
+    def _load_checkpoint(self, numero_telefono: str) -> Optional[ConversacionData]:
+        try:
+            checkpoint = self.session_service.load_for_key(numero_telefono)
+        except Exception as exc:
+            logger.error(
+                "checkpoint_load_failed phone=%s error=%s",
+                numero_telefono,
+                str(exc),
+            )
+            return None
+        if checkpoint is None:
+            return None
+
+        if not self.session_service.is_resumable_state(checkpoint.conversation.estado):
+            logger.info(
+                "checkpoint_skipped_non_resumable doc_id=%s estado=%s",
+                checkpoint.doc_id,
+                checkpoint.conversation.estado,
+            )
+            return None
+
+        if self.session_service.is_expired(checkpoint.expires_at):
+            try:
+                self.session_service.delete_for_key(numero_telefono)
+            except Exception as exc:
+                logger.error(
+                    "checkpoint_delete_failed_on_expire phone=%s error=%s",
+                    numero_telefono,
+                    str(exc),
+                )
+            logger.info(
+                "checkpoint_expired_on_read doc_id=%s estado=%s",
+                checkpoint.doc_id,
+                checkpoint.conversation.estado,
+            )
+            return None
+
+        logger.info(
+            "checkpoint_hydrated phone=%s estado=%s",
+            numero_telefono,
+            checkpoint.conversation.estado,
+        )
+        return checkpoint.conversation
     
     def get_conversacion(self, numero_telefono: str) -> ConversacionData:
         if numero_telefono not in self.conversaciones:
-            self.conversaciones[numero_telefono] = ConversacionData(
-                numero_telefono=numero_telefono,
-                estado=EstadoConversacion.INICIO
-            )
+            checkpoint_conversation = self._load_checkpoint(numero_telefono)
+            if checkpoint_conversation is not None:
+                self.conversaciones[numero_telefono] = checkpoint_conversation
+            else:
+                self.conversaciones[numero_telefono] = ConversacionData(
+                    numero_telefono=numero_telefono,
+                    estado=EstadoConversacion.INICIO
+                )
         return self.conversaciones[numero_telefono]
     
     def update_estado(self, numero_telefono: str, nuevo_estado: EstadoConversacion):

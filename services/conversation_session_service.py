@@ -89,6 +89,23 @@ class ConversationSessionService:
     def build_doc_id(channel: str, identifier: str) -> str:
         return f"{channel}:{identifier}"
 
+    @staticmethod
+    def resolve_channel_and_identifier(conversation_key: str) -> tuple[str, str]:
+        if conversation_key.startswith("messenger:"):
+            return "messenger", conversation_key.split(":", 1)[1]
+        return "whatsapp", conversation_key
+
+    @staticmethod
+    def build_runtime_key(channel: str, identifier: str) -> str:
+        if channel == "messenger":
+            return f"messenger:{identifier}"
+        return identifier
+
+    @staticmethod
+    def is_resumable_state(state) -> bool:
+        raw_state = _enum_value(state)
+        return raw_state in {_enum_value(item) for item in RESUMABLE_STATES}
+
     def _document(self, channel: str, identifier: str):
         client = self._get_firestore_client()
         doc_id = self.build_doc_id(channel, identifier)
@@ -187,10 +204,22 @@ class ConversationSessionService:
         )
         return checkpoint
 
+    def load_for_key(self, conversation_key: str) -> Optional[ConversationCheckpoint]:
+        channel, identifier = self.resolve_channel_and_identifier(conversation_key)
+        checkpoint = self.load(channel, identifier)
+        if checkpoint is None:
+            return None
+        checkpoint.conversation.numero_telefono = self.build_runtime_key(channel, identifier)
+        return checkpoint
+
     def delete(self, channel: str, identifier: str) -> None:
         doc_id, document = self._document(channel, identifier)
         document.delete()
         logger.info("checkpoint_delete doc_id=%s", doc_id)
+
+    def delete_for_key(self, conversation_key: str) -> None:
+        channel, identifier = self.resolve_channel_and_identifier(conversation_key)
+        self.delete(channel, identifier)
 
     @staticmethod
     def is_expired(expires_at: Optional[datetime], *, now: Optional[datetime] = None) -> bool:

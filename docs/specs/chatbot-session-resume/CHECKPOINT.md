@@ -7,9 +7,10 @@ Last updated: 2026-03-18
 - T1.1 Hidratar conversaciones desde Firestore cuando RAM no tenga estado.
 - T1.2 Agregar dedupe global por `message_id`.
 - T1.3 Implementar `persist-before-send` en prompts críticos.
+- T1.4 Guardar al final del request en estados reanudables.
 
 ## Current / Next
-- Next task: T1.4
+- Next task: T2.1
 - Status: READY
 
 ## Important constraints
@@ -28,8 +29,9 @@ Last updated: 2026-03-18
 - El hydrate no puede asumir credenciales válidas en todos los entornos; ante falla de Firestore debe degradar a RAM y loggear.
 - El dedupe global degrada abierto si Firestore no responde: se loggea el error y se sigue procesando para no romper inbound legítimo.
 - Los puntos cubiertos con `persist-before-send` en esta fase son `media_confirmacion` y `confirmacion_interactiva`; el save final general queda para T1.4.
+- El save final quedó concentrado en `_ok_response(...)` y solo persiste si la conversación ya está en un estado bot-reanudable; fallas ahí son no críticas y no bloquean la respuesta.
 
 ## Safe resume instructions
 - Abrir `TASKS.md` y seguir `## Execution status`.
 - Mantenerse en `impl/chatbot-session-resume`.
-- T1.4 debe persistir el snapshot final del request cuando la conversación termine en un estado bot-reanudable, sin duplicar writes innecesarios.
+- T2.1 debe borrar checkpoints al finalizar o reiniciar, incluyendo expiración por lectura y resets explícitos, sin tocar handoff/encuesta.

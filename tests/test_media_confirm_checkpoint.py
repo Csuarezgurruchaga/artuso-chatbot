@@ -200,3 +200,143 @@ def test_confirmacion_interactiva_is_blocked_when_save_fails(monkeypatch):
     assert sent_messages == [
         (phone, "❌ Hubo un error guardando tu sesión. Por favor intentá nuevamente."),
     ]
+
+
+def test_final_save_runs_after_standard_resumable_response(monkeypatch):
+    main, client = _build_client(monkeypatch)
+    phone = "+5491198765436"
+    events = []
+
+    main.conversation_manager.reset_conversacion(phone)
+    conversation = main.conversation_manager.get_conversacion(phone)
+
+    monkeypatch.setattr(
+        main.meta_whatsapp_service,
+        "extract_message_data",
+        lambda *_: (phone, "Necesito ayuda", "wamid.text.3", "Usuario Test", "text", ""),
+    )
+
+    def fake_process(*_args, **_kwargs):
+        conversation.estado = EstadoConversacion.RECOLECTANDO_SECUENCIAL
+        return "seguimos"
+
+    monkeypatch.setattr(main.ChatbotRules, "procesar_mensaje", fake_process)
+    monkeypatch.setattr(
+        main.conversation_session_service,
+        "save_for_key",
+        lambda *args, **kwargs: events.append("save") or {},
+    )
+    monkeypatch.setattr(
+        main,
+        "send_message",
+        lambda *_args: events.append("send") or True,
+    )
+
+    response = _post_payload(client)
+
+    assert response.status_code == 200
+    assert events == ["send", "save"]
+
+
+def test_final_save_skips_non_resumable_state(monkeypatch):
+    main, client = _build_client(monkeypatch)
+    phone = "+5491198765437"
+    save_calls = []
+
+    main.conversation_manager.reset_conversacion(phone)
+    conversation = main.conversation_manager.get_conversacion(phone)
+
+    monkeypatch.setattr(
+        main.meta_whatsapp_service,
+        "extract_message_data",
+        lambda *_: (phone, "Necesito ayuda", "wamid.text.4", "Usuario Test", "text", ""),
+    )
+
+    def fake_process(*_args, **_kwargs):
+        conversation.estado = EstadoConversacion.INICIO
+        return "hola"
+
+    monkeypatch.setattr(main.ChatbotRules, "procesar_mensaje", fake_process)
+    monkeypatch.setattr(
+        main.conversation_session_service,
+        "save_for_key",
+        lambda *args, **kwargs: save_calls.append(args) or {},
+    )
+    monkeypatch.setattr(main, "send_message", lambda *_: True)
+
+    response = _post_payload(client)
+
+    assert response.status_code == 200
+    assert save_calls == []
+
+
+def test_final_save_failure_does_not_block_response(monkeypatch):
+    main, client = _build_client(monkeypatch)
+    phone = "+5491198765438"
+    sent_messages = []
+
+    main.conversation_manager.reset_conversacion(phone)
+    conversation = main.conversation_manager.get_conversacion(phone)
+
+    monkeypatch.setattr(
+        main.meta_whatsapp_service,
+        "extract_message_data",
+        lambda *_: (phone, "Necesito ayuda", "wamid.text.5", "Usuario Test", "text", ""),
+    )
+
+    def fake_process(*_args, **_kwargs):
+        conversation.estado = EstadoConversacion.RECOLECTANDO_SECUENCIAL
+        return "seguimos"
+
+    monkeypatch.setattr(main.ChatbotRules, "procesar_mensaje", fake_process)
+
+    def fail_save(*_args, **_kwargs):
+        raise RuntimeError("firestore down")
+
+    monkeypatch.setattr(main.conversation_session_service, "save_for_key", fail_save)
+    monkeypatch.setattr(
+        main,
+        "send_message",
+        lambda user_id, message: sent_messages.append((user_id, message)) or True,
+    )
+
+    response = _post_payload(client)
+
+    assert response.status_code == 200
+    assert sent_messages == [(phone, "seguimos")]
+
+
+def test_final_save_runs_after_interactive_response(monkeypatch):
+    main, client = _build_client(monkeypatch)
+    phone = "+5491198765439"
+    events = []
+
+    main.conversation_manager.reset_conversacion(phone)
+    conversation = main.conversation_manager.get_conversacion(phone)
+
+    monkeypatch.setattr(
+        main.meta_whatsapp_service,
+        "extract_message_data",
+        lambda *_: (phone, "btn_confirmar", "wamid.interactive.1", "Usuario Test", "interactive", ""),
+    )
+
+    async def fake_handle(*_args, **_kwargs):
+        conversation.estado = EstadoConversacion.RECOLECTANDO_SECUENCIAL
+        return "respuesta interactiva"
+
+    monkeypatch.setattr(main, "handle_interactive_button", fake_handle)
+    monkeypatch.setattr(
+        main.conversation_session_service,
+        "save_for_key",
+        lambda *args, **kwargs: events.append("save") or {},
+    )
+    monkeypatch.setattr(
+        main,
+        "send_message",
+        lambda *_args: events.append("send") or True,
+    )
+
+    response = _post_payload(client)
+
+    assert response.status_code == 200
+    assert events == ["send", "save"]

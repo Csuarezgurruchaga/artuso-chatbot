@@ -27,6 +27,7 @@ class FakeSessionService:
             EstadoConversacion.VALIDANDO_UBICACION,
             EstadoConversacion.VALIDANDO_DATOS,
             EstadoConversacion.CONFIRMANDO,
+            EstadoConversacion.CONFIRMANDO_MEDIA,
             EstadoConversacion.CORRIGIENDO,
             EstadoConversacion.CORRIGIENDO_CAMPO,
         }

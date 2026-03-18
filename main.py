@@ -946,6 +946,7 @@ async def webhook_whatsapp_receive(request: Request):
                         combined,
                     )
                 conversation_manager.set_datos_temporales(numero_telefono, "_media_confirmacion", True)
+                conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO_MEDIA)
                 if not _persist_checkpoint_before_send(numero_telefono, "media_confirmacion"):
                     return _ok_response(numero_telefono, save_final=False)
                 ChatbotRules.send_media_confirmacion(numero_telefono)

@@ -18,6 +18,7 @@ class EstadoConversacion(str, Enum):
     VALIDANDO_UBICACION = "validando_ubicacion"
     VALIDANDO_DATOS = "validando_datos"
     CONFIRMANDO = "confirmando"
+    CONFIRMANDO_MEDIA = "confirmando_media"
     ENVIANDO = "enviando"
     FINALIZADO = "finalizado"
     CORRIGIENDO = "corrigiendo"  # Para preguntar qué campo corregir

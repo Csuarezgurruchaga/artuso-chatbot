@@ -65,6 +65,17 @@ class ConversationManager:
             checkpoint.conversation.estado,
         )
         return checkpoint.conversation
+
+    def _delete_checkpoint(self, numero_telefono: str, reason: str) -> None:
+        try:
+            self.session_service.delete_for_key(numero_telefono)
+        except Exception as exc:
+            logger.error(
+                "checkpoint_delete_failed phone=%s reason=%s error=%s",
+                numero_telefono,
+                reason,
+                str(exc),
+            )
     
     def get_conversacion(self, numero_telefono: str) -> ConversacionData:
         if numero_telefono not in self.conversaciones:
@@ -237,6 +248,7 @@ class ConversationManager:
         self.recently_finalized[numero_telefono] = datetime.utcnow()
         if numero_telefono in self.conversaciones:
             del self.conversaciones[numero_telefono]
+        self._delete_checkpoint(numero_telefono, "finalizar_conversacion")
         try:
             metrics_service.on_conversation_finished()
         except Exception:
@@ -246,6 +258,7 @@ class ConversationManager:
         if numero_telefono in self.conversaciones:
             del self.conversaciones[numero_telefono]
         self.recently_finalized.pop(numero_telefono, None)
+        self._delete_checkpoint(numero_telefono, "reset_conversacion")
     
     # Métodos para manejo secuencial de campos
     def get_campo_siguiente(self, numero_telefono: str) -> str:

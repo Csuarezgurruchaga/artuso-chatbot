@@ -2,7 +2,7 @@
 
 ## Phase 1 — Persistence boundaries and model
 
-Definir el contrato exacto del checkpoint y los estados que entran en v1. La persistencia debe cubrir solo sesiones bot-reanudables, mantener documentos chicos y usar Firestore `default` con colección `conversation-checkpoints`. También se debe definir la semántica de `expires_at`, la colección separada de dedupe por `message_id` y la serialización/hidratación de `ConversacionData`.
+Definir el contrato exacto del checkpoint y los estados que entran en v1. La persistencia debe cubrir solo sesiones bot-reanudables, mantener documentos chicos y usar Firestore `default` con colección `conversation-checkpoints`. También se debe definir la semántica de `expires_at`, la colección separada de dedupe por `message_id`, la serialización/hidratación de `ConversacionData` y el estado explícito `CONFIRMANDO_MEDIA` para la clasificación de adjuntos previa al flujo de expensas.
 
 ## Phase 2 — Runtime integration in conversation flow
 

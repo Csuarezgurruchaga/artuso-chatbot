@@ -120,9 +120,10 @@ Persistir checkpoints de sesiones bot-reanudables en Firestore para que el chatb
     - Reutiliza la integración ya presente en el repo.
     - Evita complejidad operativa adicional.
 
-- **Decision:** Persistir solo estados bot-reanudables: `RECOLECTANDO_DATOS`, `RECOLECTANDO_DATOS_INDIVIDUALES`, `RECOLECTANDO_SECUENCIAL`, `VALIDANDO_UBICACION`, `VALIDANDO_DATOS`, `CONFIRMANDO`, `CORRIGIENDO`, `CORRIGIENDO_CAMPO`, `ELIMINANDO_DIRECCION_GUARDADA`.
+- **Decision:** Persistir solo estados bot-reanudables: `RECOLECTANDO_DATOS`, `RECOLECTANDO_DATOS_INDIVIDUALES`, `RECOLECTANDO_SECUENCIAL`, `VALIDANDO_UBICACION`, `VALIDANDO_DATOS`, `CONFIRMANDO`, `CONFIRMANDO_MEDIA`, `CORRIGIENDO`, `CORRIGIENDO_CAMPO`, `ELIMINANDO_DIRECCION_GUARDADA`.
   - **Rationale:**
     - Mantiene continuidad donde el bot realmente necesita contexto.
+    - `CONFIRMANDO_MEDIA` cubre el prompt `Este archivo es un pago de expensas?`, que también requiere continuidad antes de definir `tipo_consulta`.
     - Excluye handoff/encuesta para mantener la v1 acotada y segura.
 
 - **Decision:** Aplicar deduplicación por `message_id` a todo inbound que lo incluya usando un marcador liviano separado del checkpoint de sesión.
@@ -149,6 +150,10 @@ Persistir checkpoints de sesiones bot-reanudables en Firestore para que el chatb
 - 2026-03-18 — Cierre de decisiones críticas de diseño
   - reason: se eligieron base Firestore, colección, estados persistibles, dedupe global, estrategia robusta de guardado y cleanup con Cloud Scheduler
   - impact: el spec queda listo para generar `PLAN.md`, `TASKS.md` y `ACCEPTANCE.md`
+
+- 2026-03-18 — Ajuste de estado reanudable para confirmación de media
+  - reason: el flujo `media -> confirmación` exigido por `A2` no puede reanudarse si queda modelado como `INICIO`
+  - impact: se agrega `CONFIRMANDO_MEDIA` como estado bot-reanudable explícito para el prompt de clasificación de adjuntos
 
 ## Glossary
 

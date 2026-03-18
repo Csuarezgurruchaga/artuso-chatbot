@@ -4,7 +4,7 @@
 - Dado un flujo bot-reanudable de expensas o reclamos en curso, cuando la RAM del proceso se pierde y el usuario vuelve a escribir dentro de 24 horas, entonces el chatbot retoma exactamente desde el punto en que quedó usando el checkpoint persistido.
 
 ## A2 — Confirmación de comprobante robusta a cold start
-- Dado un media recibido que dispara la pregunta `Este archivo es un pago de expensas?`, cuando la instancia original ya no existe y el usuario responde `Sí`, entonces el sistema encuentra el contexto en Firestore y continúa el flujo correcto sin perder el comprobante.
+- Dado un media recibido que dispara la pregunta `Este archivo es un pago de expensas?` y deja la conversación en `CONFIRMANDO_MEDIA`, cuando la instancia original ya no existe y el usuario responde `Sí`, entonces el sistema encuentra el contexto en Firestore y continúa el flujo correcto sin perder el comprobante.
 
 ## A3 — Expiración funcional luego de 24 horas
 - Dado un checkpoint con más de 24 horas desde `expires_at`, cuando el usuario vuelve a escribir, entonces la conversación vieja no se reanuda, el checkpoint se invalida y el chatbot reinicia desde cero sin reutilizar ese contexto.

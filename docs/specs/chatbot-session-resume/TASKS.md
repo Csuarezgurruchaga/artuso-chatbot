@@ -21,7 +21,7 @@
   - Outputs: `ConversationManager` integrado con carga por checkpoint.
   - Steps:
     - Agregar intento de `load()` antes de crear una conversación nueva.
-    - Rehidratar solo estados bot-reanudables.
+    - Rehidratar solo estados bot-reanudables, incluyendo `CONFIRMANDO_MEDIA`.
     - Ignorar y borrar checkpoints vencidos al leerlos.
   - Done condition: una conversación bot activa puede reconstruirse desde Firestore tras limpiar RAM.
   - Depends on: [T0.1]
@@ -86,7 +86,7 @@
   - Inputs: `main.py`, `chatbot/rules.py`, `chatbot/states.py`, tests de flujo existentes
   - Outputs: cobertura de escenarios de expensas/reclamos reanudables.
   - Steps:
-    - Simular `media -> confirmación -> cold start -> botón`.
+    - Simular `media -> confirmación -> cold start -> botón` usando `CONFIRMANDO_MEDIA`.
     - Simular corrección de campo tras cold start.
     - Simular confirmación final tras cold start.
   - Done condition: los flujos críticos se retoman desde el punto exacto esperado.

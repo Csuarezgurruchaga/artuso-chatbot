@@ -15,6 +15,7 @@ from chatbot.models import EstadoConversacion, ConversacionData, TipoConsulta
 from services.meta_whatsapp_service import meta_whatsapp_service
 from services.meta_messenger_service import meta_messenger_service
 from services.whatsapp_handoff_service import whatsapp_handoff_service
+from services.conversation_session_service import conversation_session_service
 from services.phone_display import format_phone_for_agent
 import unicodedata
 
@@ -49,6 +50,10 @@ COMPROBANTE_MIME_EXT = {
 HANDOFF_STANDARD_NUMBER_ENV = "HANDOFF_WHATSAPP_NUMBER"
 HANDOFF_EMERGENCY_NUMBER_ENV = "HANDOFF_EMERGENCY_WHATSAPP_NUMBER"
 RATE_LIMIT_INBOUND_ENABLED = os.getenv("RATE_LIMIT_INBOUND_ENABLED", "false").lower() == "true"
+SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE = int(
+    os.getenv("SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE", "100")
+)
+SESSION_CHECKPOINT_CLEANUP_TOKEN_ENV = "SESSION_CHECKPOINT_CLEANUP_TOKEN"
 
 
 def _normalize_optin_keyword(text: str) -> str:
@@ -193,6 +198,49 @@ def _persist_client_address(conversacion: ConversacionData) -> None:
             conversacion.numero_telefono,
             str(exc),
         )
+
+
+def _persist_checkpoint_before_send(numero_telefono: str, reason: str) -> bool:
+    conversacion = conversation_manager.get_conversacion(numero_telefono)
+    try:
+        conversation_session_service.save_for_key(numero_telefono, conversacion)
+        return True
+    except Exception as exc:
+        logger.error(
+            "critical_save_before_send_failed phone=%s estado=%s reason=%s error=%s",
+            numero_telefono,
+            conversacion.estado,
+            reason,
+            str(exc),
+        )
+        send_message(
+            numero_telefono,
+            "❌ Hubo un error guardando tu sesión. Por favor intentá nuevamente.",
+        )
+        return False
+
+
+def _save_final_checkpoint_if_needed(numero_telefono: str) -> None:
+    conversacion = conversation_manager.conversaciones.get(numero_telefono)
+    if not conversacion:
+        return
+    if not conversation_session_service.is_resumable_state(conversacion.estado):
+        return
+    try:
+        conversation_session_service.save_for_key(numero_telefono, conversacion)
+    except Exception as exc:
+        logger.error(
+            "final_save_failed phone=%s estado=%s error=%s",
+            numero_telefono,
+            conversacion.estado,
+            str(exc),
+        )
+
+
+def _ok_response(numero_telefono: Optional[str] = None, *, save_final: bool = False) -> PlainTextResponse:
+    if save_final and numero_telefono:
+        _save_final_checkpoint_if_needed(numero_telefono)
+    return PlainTextResponse("", status_code=200)
 
 
 def _send_handoff_template(conversacion: ConversacionData) -> tuple[bool, str]:
@@ -464,6 +512,27 @@ async def handoff_ttl_sweep(token: str = Form(...)):
     
     return {"closed": cerradas}
 
+
+@app.post("/session-checkpoints/cleanup")
+async def session_checkpoints_cleanup(token: str = Form(...)):
+    """Job diario idempotente para borrar checkpoints vencidos en lotes chicos."""
+    if token != os.getenv(SESSION_CHECKPOINT_CLEANUP_TOKEN_ENV, ""):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    deleted_doc_ids = conversation_session_service.cleanup_expired_checkpoints(
+        limit=SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE,
+    )
+    logger.info(
+        "checkpoint_cleanup_run deleted=%s batch_limit=%s",
+        len(deleted_doc_ids),
+        SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE,
+    )
+    return {
+        "deleted": len(deleted_doc_ids),
+        "deleted_doc_ids": deleted_doc_ids,
+        "batch_limit": SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE,
+    }
+
 @app.get("/webhook/whatsapp")
 async def webhook_whatsapp_verify(request: Request):
     """
@@ -548,10 +617,30 @@ async def webhook_whatsapp_receive(request: Request):
         
         if message_data:
             numero_telefono, mensaje_usuario, message_id, profile_name, message_type, message_caption = message_data
+            skip_final_save = False
 
             logger.info(
                 f"Mensaje recibido de {numero_telefono} ({profile_name or 'sin nombre'}): {mensaje_usuario}"
             )
+
+            if message_id:
+                try:
+                    is_duplicate = conversation_session_service.mark_message_processed(message_id)
+                except Exception as exc:
+                    logger.error(
+                        "message_dedupe_failed phone=%s message_id=%s error=%s",
+                        numero_telefono,
+                        message_id,
+                        str(exc),
+                    )
+                else:
+                    if is_duplicate:
+                        logger.info(
+                            "message_deduped phone=%s message_id=%s",
+                            numero_telefono,
+                            message_id,
+                        )
+                        return PlainTextResponse("", status_code=200)
 
             # Verificar si el mensaje viene del agente humano
             if whatsapp_handoff_service.is_agent_message(numero_telefono):
@@ -711,7 +800,7 @@ async def webhook_whatsapp_receive(request: Request):
                 _maybe_notify_handoff(numero_telefono)
                 _postprocess_enviando(numero_telefono)
 
-                return PlainTextResponse("", status_code=200)
+                return _ok_response(numero_telefono, save_final=True)
 
             # Manejar comprobantes adjuntos
             if message_type in {"image", "document"} and mensaje_usuario.startswith("media:"):
@@ -793,7 +882,7 @@ async def webhook_whatsapp_receive(request: Request):
                         valido, error = conversation_manager.validar_y_guardar_datos(numero_telefono)
                         if not valido:
                             send_message(numero_telefono, f"❌ Error al actualizar: {error}")
-                            return PlainTextResponse("", status_code=200)
+                            return _ok_response(numero_telefono, save_final=True)
                         conversation_manager.set_datos_temporales(numero_telefono, "_campo_a_corregir", None)
                         conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO)
                         conversacion_actualizada = conversation_manager.get_conversacion(numero_telefono)
@@ -801,7 +890,7 @@ async def webhook_whatsapp_receive(request: Request):
                             numero_telefono,
                             f"✅ Campo actualizado correctamente.\n\n{ChatbotRules.get_mensaje_confirmacion(conversacion_actualizada)}",
                         )
-                        return PlainTextResponse("", status_code=200)
+                        return _ok_response(numero_telefono, save_final=True)
 
                     if caption_text:
                         respuesta_caption = ChatbotRules.procesar_mensaje(
@@ -813,7 +902,7 @@ async def webhook_whatsapp_receive(request: Request):
                             send_message(numero_telefono, respuesta_caption)
                         _maybe_notify_handoff(numero_telefono)
                         _postprocess_enviando(numero_telefono)
-                        return PlainTextResponse("", status_code=200)
+                        return _ok_response(numero_telefono, save_final=True)
 
                     siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
                     if not siguiente:
@@ -824,21 +913,21 @@ async def webhook_whatsapp_receive(request: Request):
                                 conversation_manager.get_conversacion(numero_telefono)
                             ),
                         )
-                        return PlainTextResponse("", status_code=200)
+                        return _ok_response(numero_telefono, save_final=True)
 
                     if esperando_comprobante:
                         send_message(
                             numero_telefono,
                             ChatbotRules._get_pregunta_campo_secuencial(siguiente),
                         )
-                        return PlainTextResponse("", status_code=200)
+                        return _ok_response(numero_telefono, save_final=True)
 
                     send_message(
                         numero_telefono,
                         "🧾 Comprobante recibido.\n\n"
                         + ChatbotRules._get_pregunta_campo_secuencial(siguiente),
                     )
-                    return PlainTextResponse("", status_code=200)
+                    return _ok_response(numero_telefono, save_final=True)
 
                 if conversacion_media.tipo_consulta == TipoConsulta.SOLICITAR_SERVICIO and conversacion_media.estado not in {
                     EstadoConversacion.INICIO,
@@ -861,7 +950,7 @@ async def webhook_whatsapp_receive(request: Request):
                             send_message(numero_telefono, respuesta_caption)
                         _maybe_notify_handoff(numero_telefono)
                         _postprocess_enviando(numero_telefono)
-                        return PlainTextResponse("", status_code=200)
+                        return _ok_response(numero_telefono, save_final=True)
 
                     siguiente = conversation_manager.get_campo_siguiente(numero_telefono)
                     if siguiente:
@@ -870,7 +959,7 @@ async def webhook_whatsapp_receive(request: Request):
                             "📎 Archivo recibido.\n\n"
                             + ChatbotRules._get_pregunta_campo_secuencial(siguiente),
                         )
-                    return PlainTextResponse("", status_code=200)
+                    return _ok_response(numero_telefono, save_final=True)
 
                 _append_url_to_list(conversacion_media, "adjuntos_pendientes", url)
                 if caption_text:
@@ -882,8 +971,11 @@ async def webhook_whatsapp_receive(request: Request):
                         combined,
                     )
                 conversation_manager.set_datos_temporales(numero_telefono, "_media_confirmacion", True)
+                conversation_manager.update_estado(numero_telefono, EstadoConversacion.CONFIRMANDO_MEDIA)
+                if not _persist_checkpoint_before_send(numero_telefono, "media_confirmacion"):
+                    return _ok_response(numero_telefono, save_final=False)
                 ChatbotRules.send_media_confirmacion(numero_telefono)
-                return PlainTextResponse("", status_code=200)
+                return _ok_response(numero_telefono, save_final=False)
 
             # Fallback para contenidos no-texto
             if not mensaje_usuario or not mensaje_usuario.strip():
@@ -1157,7 +1249,9 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
                 conversacion_post.estado == EstadoConversacion.CONFIRMANDO
                 and not numero_telefono.startswith("messenger:")
             ):
-                ChatbotRules.send_confirmacion_interactiva(numero_telefono, conversacion_post)
+                if _persist_checkpoint_before_send(numero_telefono, "confirmacion_interactiva"):
+                    ChatbotRules.send_confirmacion_interactiva(numero_telefono, conversacion_post)
+                    skip_final_save = True
                 respuesta = ""
 
             # Enviar respuesta usando el servicio correcto (WhatsApp o Messenger)
@@ -1173,6 +1267,7 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
             _maybe_notify_handoff(numero_telefono)
             
             _postprocess_enviando(numero_telefono)
+            return _ok_response(numero_telefono, save_final=not skip_final_save)
         
         # Extraer datos de estado de mensaje (opcional, para métricas)
         status_data = meta_whatsapp_service.extract_status_data(webhook_data)
@@ -1204,7 +1299,7 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
                 metrics_service.on_message_read()
         
         # Siempre retornar 200 para que Meta no reintente
-        return PlainTextResponse("", status_code=200)
+        return _ok_response()
         
     except Exception as e:
         logger.error(f"Error en webhook de WhatsApp: {str(e)}")

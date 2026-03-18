@@ -94,6 +94,7 @@ COMPANY_PROFILES = {
             13: "Paraguay 2640",
             14: [
                 "Lavalle 1282",
+                "Lavalle 1284",
                 "Lavalle 1280",
             ],
             15: "Charcas 3962",

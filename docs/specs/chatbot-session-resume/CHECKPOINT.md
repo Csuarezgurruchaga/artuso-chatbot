@@ -5,9 +5,10 @@ Last updated: 2026-03-18
 ## Completed
 - T0.1 Crear el servicio de checkpoints.
 - T1.1 Hidratar conversaciones desde Firestore cuando RAM no tenga estado.
+- T1.2 Agregar dedupe global por `message_id`.
 
 ## Current / Next
-- Next task: T1.2
+- Next task: T1.3
 - Status: READY
 
 ## Important constraints
@@ -24,8 +25,9 @@ Last updated: 2026-03-18
 - El helper `verify_contract.py` exige `Open Questions` totalmente vacío, no `- None.`.
 - `ConversacionData` usa `use_enum_values=True`, así que el servicio debe tolerar enums serializados como `str`.
 - El hydrate no puede asumir credenciales válidas en todos los entornos; ante falla de Firestore debe degradar a RAM y loggear.
+- El dedupe global degrada abierto si Firestore no responde: se loggea el error y se sigue procesando para no romper inbound legítimo.
 
 ## Safe resume instructions
 - Abrir `TASKS.md` y seguir `## Execution status`.
 - Mantenerse en `impl/chatbot-session-resume`.
-- T1.2 debe aplicar dedupe global por `message_id` antes de side effects y sin depender de checkpoint activo.
+- T1.3 debe identificar los prompts críticos actuales y persistir el checkpoint antes del envío, fallando cerrado solo en esos puntos.

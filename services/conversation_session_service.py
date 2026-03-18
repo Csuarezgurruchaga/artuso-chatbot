@@ -9,11 +9,17 @@ try:
 except Exception:
     firestore = None
 
+try:
+    from google.api_core.exceptions import AlreadyExists
+except Exception:
+    AlreadyExists = None
+
 from chatbot.models import ConversacionData, DatosContacto, EstadoConversacion, TipoConsulta
 
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_COLLECTION = "conversation-checkpoints"
+PROCESSED_MESSAGE_COLLECTION = "processed-inbound-message-ids"
 DEFAULT_FIRESTORE_DATABASE = "default"
 CHECKPOINT_SCHEMA_VERSION = 1
 CHECKPOINT_TTL_HOURS = 24
@@ -220,6 +226,34 @@ class ConversationSessionService:
     def delete_for_key(self, conversation_key: str) -> None:
         channel, identifier = self.resolve_channel_and_identifier(conversation_key)
         self.delete(channel, identifier)
+
+    def mark_message_processed(
+        self,
+        message_id: str,
+        *,
+        processed_at: Optional[datetime] = None,
+    ) -> bool:
+        processed_at = _ensure_utc(processed_at) or _utc_now()
+        expires_at = processed_at + timedelta(hours=CHECKPOINT_TTL_HOURS)
+        document = self._get_firestore_client().collection(PROCESSED_MESSAGE_COLLECTION).document(message_id)
+        payload = {
+            "processed_at": processed_at,
+            "expires_at": expires_at,
+        }
+        try:
+            if hasattr(document, "create"):
+                document.create(payload)
+            else:
+                snapshot = document.get()
+                if snapshot.exists:
+                    return True
+                document.set(payload)
+        except Exception as exc:
+            if AlreadyExists and isinstance(exc, AlreadyExists):
+                return True
+            raise
+        logger.info("message_marker_saved message_id=%s", message_id)
+        return False
 
     @staticmethod
     def is_expired(expires_at: Optional[datetime], *, now: Optional[datetime] = None) -> bool:

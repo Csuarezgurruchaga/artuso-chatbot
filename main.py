@@ -15,6 +15,7 @@ from chatbot.models import EstadoConversacion, ConversacionData, TipoConsulta
 from services.meta_whatsapp_service import meta_whatsapp_service
 from services.meta_messenger_service import meta_messenger_service
 from services.whatsapp_handoff_service import whatsapp_handoff_service
+from services.conversation_session_service import conversation_session_service
 from services.phone_display import format_phone_for_agent
 import unicodedata
 
@@ -552,6 +553,25 @@ async def webhook_whatsapp_receive(request: Request):
             logger.info(
                 f"Mensaje recibido de {numero_telefono} ({profile_name or 'sin nombre'}): {mensaje_usuario}"
             )
+
+            if message_id:
+                try:
+                    is_duplicate = conversation_session_service.mark_message_processed(message_id)
+                except Exception as exc:
+                    logger.error(
+                        "message_dedupe_failed phone=%s message_id=%s error=%s",
+                        numero_telefono,
+                        message_id,
+                        str(exc),
+                    )
+                else:
+                    if is_duplicate:
+                        logger.info(
+                            "message_deduped phone=%s message_id=%s",
+                            numero_telefono,
+                            message_id,
+                        )
+                        return PlainTextResponse("", status_code=200)
 
             # Verificar si el mensaje viene del agente humano
             if whatsapp_handoff_service.is_agent_message(numero_telefono):

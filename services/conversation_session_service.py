@@ -241,6 +241,31 @@ class ConversationSessionService:
         document.delete()
         logger.info("checkpoint_delete doc_id=%s", doc_id)
 
+    def cleanup_expired_checkpoints(
+        self,
+        *,
+        now: Optional[datetime] = None,
+        limit: int = 100,
+    ) -> list[str]:
+        now = _ensure_utc(now) or _utc_now()
+        query = (
+            self._get_firestore_client()
+            .collection(self.collection)
+            .where("expires_at", "<=", now)
+            .limit(limit)
+        )
+        deleted_doc_ids = []
+        for snapshot in query.stream():
+            payload = snapshot.to_dict() or {}
+            snapshot.reference.delete()
+            logger.info(
+                "checkpoint_cleanup_delete doc_id=%s estado=%s",
+                snapshot.id,
+                payload.get("estado"),
+            )
+            deleted_doc_ids.append(snapshot.id)
+        return deleted_doc_ids
+
     def delete_for_key(self, conversation_key: str) -> None:
         channel, identifier = self.resolve_channel_and_identifier(conversation_key)
         self.delete(channel, identifier)

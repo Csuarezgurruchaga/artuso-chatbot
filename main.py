@@ -50,6 +50,10 @@ COMPROBANTE_MIME_EXT = {
 HANDOFF_STANDARD_NUMBER_ENV = "HANDOFF_WHATSAPP_NUMBER"
 HANDOFF_EMERGENCY_NUMBER_ENV = "HANDOFF_EMERGENCY_WHATSAPP_NUMBER"
 RATE_LIMIT_INBOUND_ENABLED = os.getenv("RATE_LIMIT_INBOUND_ENABLED", "false").lower() == "true"
+SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE = int(
+    os.getenv("SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE", "100")
+)
+SESSION_CHECKPOINT_CLEANUP_TOKEN_ENV = "SESSION_CHECKPOINT_CLEANUP_TOKEN"
 
 
 def _normalize_optin_keyword(text: str) -> str:
@@ -507,6 +511,27 @@ async def handoff_ttl_sweep(token: str = Form(...)):
                 logger.info(f"Conversación {conv.numero_telefono} cerrada por: {close_reason}")
     
     return {"closed": cerradas}
+
+
+@app.post("/session-checkpoints/cleanup")
+async def session_checkpoints_cleanup(token: str = Form(...)):
+    """Job diario idempotente para borrar checkpoints vencidos en lotes chicos."""
+    if token != os.getenv(SESSION_CHECKPOINT_CLEANUP_TOKEN_ENV, ""):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    deleted_doc_ids = conversation_session_service.cleanup_expired_checkpoints(
+        limit=SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE,
+    )
+    logger.info(
+        "checkpoint_cleanup_run deleted=%s batch_limit=%s",
+        len(deleted_doc_ids),
+        SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE,
+    )
+    return {
+        "deleted": len(deleted_doc_ids),
+        "deleted_doc_ids": deleted_doc_ids,
+        "batch_limit": SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE,
+    }
 
 @app.get("/webhook/whatsapp")
 async def webhook_whatsapp_verify(request: Request):

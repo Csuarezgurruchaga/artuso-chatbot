@@ -8,9 +8,10 @@ Last updated: 2026-03-18
 - T1.2 Agregar dedupe global por `message_id`.
 - T1.3 Implementar `persist-before-send` en prompts críticos.
 - T1.4 Guardar al final del request en estados reanudables.
+- T2.1 Borrar checkpoints al finalizar o reiniciar conversación.
 
 ## Current / Next
-- Next task: T2.1
+- Next task: T2.2
 - Status: READY
 
 ## Important constraints
@@ -30,8 +31,9 @@ Last updated: 2026-03-18
 - El dedupe global degrada abierto si Firestore no responde: se loggea el error y se sigue procesando para no romper inbound legítimo.
 - Los puntos cubiertos con `persist-before-send` en esta fase son `media_confirmacion` y `confirmacion_interactiva`; el save final general queda para T1.4.
 - El save final quedó concentrado en `_ok_response(...)` y solo persiste si la conversación ya está en un estado bot-reanudable; fallas ahí son no críticas y no bloquean la respuesta.
+- `finalizar_conversacion` y `reset_conversacion` ya borran checkpoints; handoff/encuesta siguen fuera de la persistencia porque no generan checkpoints reanudables.
 
 ## Safe resume instructions
 - Abrir `TASKS.md` y seguir `## Execution status`.
 - Mantenerse en `impl/chatbot-session-resume`.
-- T2.1 debe borrar checkpoints al finalizar o reiniciar, incluyendo expiración por lectura y resets explícitos, sin tocar handoff/encuesta.
+- T2.2 debe demostrar reanudación real en los flujos críticos: media -> confirmación, corrección de campo y confirmación final tras limpiar RAM.

@@ -161,7 +161,7 @@
   - after Phase 4: safe to stop here
 
 ## Execution status
-- Status: IN_PROGRESS
-- Current task: T4.2
-- Completed tasks: T0.1, T1.1, T1.2, T1.3, T1.4, T2.1, T2.2, T3.1, T3.2, T4.1
+- Status: DONE
+- Current task: none
+- Completed tasks: T0.1, T1.1, T1.2, T1.3, T1.4, T2.1, T2.2, T3.1, T3.2, T4.1, T4.2
 - Last updated: 2026-03-18

@@ -13,10 +13,11 @@ Last updated: 2026-03-18
 - T3.1 Implementar expiración por lectura a 24 horas.
 - T3.2 Agregar métricas/logs operativos de checkpoints.
 - T4.1 Crear endpoint dedicado de cleanup y wiring con Cloud Scheduler.
+- T4.2 Verificación final y plan de rollout.
 
 ## Current / Next
-- Next task: T4.2
-- Status: READY
+- Next task: none
+- Status: DONE
 
 ## Important constraints
 - Firestore `default` + `conversation-checkpoints`.
@@ -40,8 +41,9 @@ Last updated: 2026-03-18
 - T3.1 quedó respaldada con tests dedicados de TTL: `expires_at` exacto a 24h, backfill desde `last_user_message_at` y descarte silencioso del checkpoint vencido.
 - T3.2 quedó fijada con tests de observabilidad sobre `checkpoint_save/load/delete`, `checkpoint_expired_on_read`, `message_deduped` y fallas `critical_save_before_send_failed` / `final_save_failed`, validando además que no se filtren payloads sensibles.
 - T4.1 agregó `POST /session-checkpoints/cleanup`, token propio (`SESSION_CHECKPOINT_CLEANUP_TOKEN`), batch size configurable (`SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE`), query por `expires_at` en el servicio y `RUNBOOK.md` para el trigger diario vía Cloud Scheduler.
+- T4.2 cerró el spec con suite focalizada `31 passed`, walkthrough local de rehidratación `CONFIRMANDO_MEDIA` y validación directa del endpoint de cleanup con token válido.
 
 ## Safe resume instructions
 - Abrir `TASKS.md` y seguir `## Execution status`.
 - Mantenerse en `impl/chatbot-session-resume`.
-- T4.2 debe ejecutar la verificación final del spec completo, dejar evidencia resumida de rollout/rollback y cerrar `Status: DONE` si todo queda verde.
+- El spec quedó completo. Usar `RUNBOOK.md` para rollout/rollback y tomar `TASKS.md` como fuente de cierre (`Status: DONE`).

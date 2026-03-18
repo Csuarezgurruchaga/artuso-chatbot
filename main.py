@@ -196,6 +196,26 @@ def _persist_client_address(conversacion: ConversacionData) -> None:
         )
 
 
+def _persist_checkpoint_before_send(numero_telefono: str, reason: str) -> bool:
+    conversacion = conversation_manager.get_conversacion(numero_telefono)
+    try:
+        conversation_session_service.save_for_key(numero_telefono, conversacion)
+        return True
+    except Exception as exc:
+        logger.error(
+            "critical_save_before_send_failed phone=%s estado=%s reason=%s error=%s",
+            numero_telefono,
+            conversacion.estado,
+            reason,
+            str(exc),
+        )
+        send_message(
+            numero_telefono,
+            "❌ Hubo un error guardando tu sesión. Por favor intentá nuevamente.",
+        )
+        return False
+
+
 def _send_handoff_template(conversacion: ConversacionData) -> tuple[bool, str]:
     agent_number = _get_handoff_agent_number(conversacion)
     if not agent_number:
@@ -902,6 +922,8 @@ async def webhook_whatsapp_receive(request: Request):
                         combined,
                     )
                 conversation_manager.set_datos_temporales(numero_telefono, "_media_confirmacion", True)
+                if not _persist_checkpoint_before_send(numero_telefono, "media_confirmacion"):
+                    return PlainTextResponse("", status_code=200)
                 ChatbotRules.send_media_confirmacion(numero_telefono)
                 return PlainTextResponse("", status_code=200)
 
@@ -1177,7 +1199,8 @@ Cliente: {profile_name or 'Sin nombre'} ({numero_display})
                 conversacion_post.estado == EstadoConversacion.CONFIRMANDO
                 and not numero_telefono.startswith("messenger:")
             ):
-                ChatbotRules.send_confirmacion_interactiva(numero_telefono, conversacion_post)
+                if _persist_checkpoint_before_send(numero_telefono, "confirmacion_interactiva"):
+                    ChatbotRules.send_confirmacion_interactiva(numero_telefono, conversacion_post)
                 respuesta = ""
 
             # Enviar respuesta usando el servicio correcto (WhatsApp o Messenger)

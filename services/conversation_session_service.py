@@ -218,6 +218,23 @@ class ConversationSessionService:
         checkpoint.conversation.numero_telefono = self.build_runtime_key(channel, identifier)
         return checkpoint
 
+    def save_for_key(
+        self,
+        conversation_key: str,
+        conversation: ConversacionData,
+        *,
+        last_user_message_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+    ) -> dict:
+        channel, identifier = self.resolve_channel_and_identifier(conversation_key)
+        return self.save(
+            channel,
+            identifier,
+            conversation,
+            last_user_message_at=last_user_message_at,
+            updated_at=updated_at,
+        )
+
     def delete(self, channel: str, identifier: str) -> None:
         doc_id, document = self._document(channel, identifier)
         document.delete()

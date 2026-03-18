@@ -9,9 +9,10 @@ Last updated: 2026-03-18
 - T1.3 Implementar `persist-before-send` en prompts críticos.
 - T1.4 Guardar al final del request en estados reanudables.
 - T2.1 Borrar checkpoints al finalizar o reiniciar conversación.
+- T2.2 Reanudar media, corrección y confirmación final end-to-end.
 
 ## Current / Next
-- Next task: T2.2
+- Next task: T3.1
 - Status: READY
 
 ## Important constraints
@@ -32,8 +33,9 @@ Last updated: 2026-03-18
 - Los puntos cubiertos con `persist-before-send` en esta fase son `media_confirmacion` y `confirmacion_interactiva`; el save final general queda para T1.4.
 - El save final quedó concentrado en `_ok_response(...)` y solo persiste si la conversación ya está en un estado bot-reanudable; fallas ahí son no críticas y no bloquean la respuesta.
 - `finalizar_conversacion` y `reset_conversacion` ya borran checkpoints; handoff/encuesta siguen fuera de la persistencia porque no generan checkpoints reanudables.
+- La clasificación de adjuntos ahora usa `CONFIRMANDO_MEDIA`; sin ese estado explícito el flujo de `A2` no podía reanudarse con el contrato original.
 
 ## Safe resume instructions
 - Abrir `TASKS.md` y seguir `## Execution status`.
 - Mantenerse en `impl/chatbot-session-resume`.
-- T2.2 debe demostrar reanudación real en los flujos críticos: media -> confirmación, corrección de campo y confirmación final tras limpiar RAM.
+- T3.1 debe endurecer la expiración funcional a 24h con tests dedicados, aprovechando el wiring de hydrate/delete ya existente.

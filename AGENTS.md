@@ -13,7 +13,9 @@ Guidelines for Codex sessions in this repository.
 - `services/`: external integrations (Meta APIs, NLU, sheets, email, handoff, metrics).
 - `config/`: company profiles and contact info.
 - `templates/`: prompts for LLM extraction.
-- `tests/`: standalone Python scripts (no pytest harness).
+- `tests/`: focused `pytest` suite plus some helper/manual scripts.
+- `docs/specs/chatbot-session-resume/`: source of truth for session persistence/resume rollout and runbook.
+- `Dockerfile` + `.dockerignore`: Cloud Run packaging contract; keep runtime-only contents and avoid unrelated image bloat.
 
 ## Workflow expectations
 - For non-trivial design or architecture work, use the spec workflow first and do not code until `SPEC.md` has no Open Questions.
@@ -28,10 +30,10 @@ Guidelines for Codex sessions in this repository.
 - Configure environment in `.env` (see `CLAUDE.md` for variable list).
 
 ## Testing
-- Tests are runnable scripts. Execute the relevant ones under `tests/`, e.g.:
-  - `python tests/test_chatbot.py`
-  - `python tests/test_llm_first.py`
-  - `python tests/test_contact_info.py`
+- Prefer `python3 -m pytest -q ...` with focused test files under `tests/`.
+- High-signal suites for recent work:
+  - `python3 -m pytest -q tests/test_session_resume_manager.py tests/test_session_expiration.py tests/test_session_cleanup.py tests/test_session_checkpoint_service.py tests/test_session_dedupe.py tests/test_session_delete_on_finalize.py tests/test_session_observability.py tests/test_media_confirm_checkpoint.py`
+  - `python3 -m pytest -q tests/test_expensas_address_map.py`
 - If tests/linters exist, run and report results; otherwise state that clearly.
 
 ## Work log
@@ -101,3 +103,10 @@ Guidelines for Codex sessions in this repository.
 - problem: El link de sticker estaba hardcodeado a GitHub raw; para operar con assets en GCS/CDN sin depender de `media_id` se necesitaba override por entorno.
 - solution: Se agregó `WHATSAPP_STICKER_URL` como override de URL del sticker en saludo. Si la variable no está, se mantiene fallback al comportamiento anterior de URL por GitHub.
 - proof: `python3 -m pytest -q tests/test_welcome_sticker_fallback.py`
+
+- date: 2026-03-18
+- context: `main.py`, `services/conversation_session_service.py`, `chatbot/models.py`, `chatbot/states.py`, `docs/specs/chatbot-session-resume/*`, `config/company_profiles.py`
+- problem: El servicio productivo de Artuso no sobrevivía cold starts: el estado quedaba solo en memoria y se perdía al apagarse la instancia. Además faltaba dejar trazabilidad operativa del rollout y del alias nuevo `Lavalle 1284`.
+- solution: Se implementó persistencia/reanudación de sesión para estados bot-reanudables con Firestore `default`, colección `conversation-checkpoints`, dedupe global en `processed-inbound-message-ids`, expiración funcional a 24h, borrado al finalizar, `persist-before-send` en prompts críticos y endpoint dedicado `POST /session-checkpoints/cleanup` protegido por `SESSION_CHECKPOINT_CLEANUP_TOKEN` y acotado por `SESSION_CHECKPOINT_CLEANUP_BATCH_SIZE`. También se agregó el alias `Lavalle 1284 -> código 14`.
+- notes: En `argenfuego-chatbot` fue necesario crear Firestore `default` además de la base preexistente `opt-in`. El deploy productivo de `artuso-chatbot` sigue el CD del repo sobre `main` mediante Cloud Build trigger; el push de `main` generó la revisión `artuso-chatbot-00138-drs`. El número productivo de Artuso sigue ruteando al servicio `artuso-chatbot`. El número debug de Kleiman (`phone_number_id=972301799307809`) quedó desviado a `artuso-chatbot-e2e` para pruebas E2E y no se revirtió en esta sesión.
+- proof: `python3 -m pytest -q tests/test_session_resume_manager.py tests/test_session_expiration.py tests/test_session_cleanup.py tests/test_session_checkpoint_service.py tests/test_session_dedupe.py tests/test_session_delete_on_finalize.py tests/test_session_observability.py tests/test_media_confirm_checkpoint.py tests/test_expensas_address_map.py` (`39 passed`), `curl -fsS https://artuso-chatbot-crpyvzgf4q-tl.a.run.app/health`, logs con `checkpoint_load`/`checkpoint_hydrated` tras cold start y despliegue a `artuso-chatbot-00138-drs`

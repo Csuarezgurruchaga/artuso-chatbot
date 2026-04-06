@@ -45,6 +45,15 @@ def test_missing_av_prefix_still_maps():
         _restore_profile(previous_profile)
 
 
+def test_lavalle_1284_maps_to_code_14():
+    previous_profile = _set_profile()
+    try:
+        service = ExpensasSheetService()
+        assert service._resolve_address_code("Lavalle 1284") == 14
+    finally:
+        _restore_profile(previous_profile)
+
+
 def test_compact_street_number_maps_after_direct_match_fails():
     previous_profile = _set_profile()
     try:
@@ -169,6 +178,7 @@ def test_fuzzy_suggestions_require_exact_number_overlap():
 if __name__ == "__main__":
     test_av_santa_fe_maps_to_santa_fe_code()
     test_missing_av_prefix_still_maps()
+    test_lavalle_1284_maps_to_code_14()
     test_compact_street_number_maps_after_direct_match_fails()
     test_address_synonyms_map_to_same_code()
     test_canonical_addresses_are_explicit()
